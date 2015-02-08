@@ -1618,6 +1618,7 @@ fec_enet_interrupt(int irq, void *dev_id)
 
 static int fec_enet_rx_napi(struct napi_struct *napi, int budget)
 {
+	unsigned int imask = FEC_ENET_TXF | FEC_NAPI_IMASK;
 	struct net_device *ndev = napi->dev;
 	struct fec_enet_private *fep = netdev_priv(ndev);
 	int pkts;
@@ -1628,8 +1629,11 @@ static int fec_enet_rx_napi(struct napi_struct *napi, int budget)
 
 	if (pkts < budget) {
 		napi_complete_done(napi, pkts);
-		writel(FEC_DEFAULT_IMASK, fep->hwp + FEC_IMASK);
+		imask |= FEC_ENET_RXF;
 	}
+
+	writel(imask, fep->hwp + FEC_IMASK);
+
 	return pkts;
 }
 
