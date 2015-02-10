@@ -1616,11 +1616,54 @@ fec_enet_interrupt(int irq, void *dev_id)
 	return ret;
 }
 
+static int unmask_events(struct net_device *ndev, unsigned int events)
+{
+	struct fec_enet_private *fep = netdev_priv(ndev);
+	struct fec_enet_priv_rx_q *rxq;
+	int n, queue_id;
+
+	writel(events, fep->hwp + FEC_IMASK);
+	dmb();
+
+	if ((events & FEC_ENET_RXF) == 0)
+		return 0;
+
+	/*
+	 * The FEC sees the unmasking of RXF events in the EIMR while
+	 * RDAR is cleared as an error, and stops issuing RXF
+	 * interrupts as a consequence of this. Since the receive path
+	 * is fully interrupt-driven, this leads to a stall.
+	 *
+	 * Unfortunately, the combination of high network load on the
+	 * receiver side, and delays on the current CPU (kernel
+	 * preemption, IRQ activity) may cause the RX ring to fill up
+	 * again soon after we pulled some/all of the pending frames,
+	 * but _before_ RXF is unmasked in the EIMR, leading to the
+	 * obnoxious RX stall.
+	 *
+	 * To prevent this, we pull exactly one frame from the RX ring
+	 * if RDAR is zero, _after_ the EIMR was updated. RDAR gets
+	 * written to as a consequence of such update, which is enough
+	 * to re-enable the RXF event.
+	 *
+	 * NOTE: a request to unmask RXF implies that we did not
+	 * consume the entire NAPI budget for the current round. This
+	 * means that we may pull at least one more frame without
+	 * exceeding the allowed weight (NAPI_POLL_WEIGHT).
+	 */
+	for (n = 0; n < FEC_ENET_MAX_RX_QS; n++) {
+		queue_id = FEC_ENET_GET_QUQUE(n);
+		rxq = fep->rx_queue[queue_id];
+		if (rxq && readl(rxq->bd.reg_desc_active) == 0)
+			return fec_enet_rx_queue(ndev, 1, queue_id);
+	}
+
+	return 0;
+}
+
 static int fec_enet_rx_napi(struct napi_struct *napi, int budget)
 {
-	unsigned int imask = FEC_ENET_TXF | FEC_NAPI_IMASK;
 	struct net_device *ndev = napi->dev;
-	struct fec_enet_private *fep = netdev_priv(ndev);
 	int pkts;
 
 	pkts = fec_enet_rx(ndev, budget);
@@ -1629,10 +1672,9 @@ static int fec_enet_rx_napi(struct napi_struct *napi, int budget)
 
 	if (pkts < budget) {
 		napi_complete_done(napi, pkts);
-		imask |= FEC_ENET_RXF;
-	}
-
-	writel(imask, fep->hwp + FEC_IMASK);
+		pkts += unmask_events(ndev, FEC_DEFAULT_IMASK);
+	} else
+		unmask_events(ndev, FEC_RX_DISABLED_IMASK);
 
 	return pkts;
 }
