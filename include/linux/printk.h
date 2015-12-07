@@ -157,10 +157,13 @@ static inline void printk_nmi_direct_exit(void) { }
 #endif /* PRINTK_NMI */
 
 #ifdef CONFIG_RAW_PRINTK
+void raw_puts(const char *s, size_t len);
 void raw_vprintk(const char *fmt, va_list ap);
 asmlinkage __printf(1, 2)
 void raw_printk(const char *fmt, ...);
 #else
+static inline __cold
+void raw_puts(const char *s, size_t len) { }
 static inline __cold
 void raw_vprintk(const char *s, va_list ap) { }
 static inline __printf(1, 2) __cold
