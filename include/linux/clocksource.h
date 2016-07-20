@@ -19,6 +19,7 @@
 #include <linux/of.h>
 #include <asm/div64.h>
 #include <asm/io.h>
+#include <uapi/linux/clocksource.h>
 
 struct clocksource;
 struct module;
@@ -253,9 +254,29 @@ extern u64 clocksource_mmio_readl_up(struct clocksource *);
 extern u64 clocksource_mmio_readl_down(struct clocksource *);
 extern u64 clocksource_mmio_readw_up(struct clocksource *);
 extern u64 clocksource_mmio_readw_down(struct clocksource *);
+extern u64 clocksource_dual_mmio_readw_up(struct clocksource *);
+extern u64 clocksource_dual_mmio_readl_up(struct clocksource *);
 
 extern int clocksource_mmio_init(void __iomem *, const char *,
 	unsigned long, int, unsigned, u64 (*)(struct clocksource *));
+
+extern int clocksource_user_dual_mmio_init(
+	void __iomem *reg_lower, unsigned bits_lower,
+	void __iomem *reg_upper, unsigned bits_upper,
+	const char *name, unsigned long hz, int rating,
+	u64 (*read)(struct clocksource *),
+	unsigned long (*revmap)(void *));
+
+static inline int clocksource_user_mmio_init(
+	void __iomem *reg, const char *name,
+	unsigned long hz, int rating, unsigned bits,
+	u64 (*read)(struct clocksource *),
+	unsigned long (*revmap)(void *))
+{
+	return clocksource_user_dual_mmio_init(
+		reg, bits, NULL, 0,
+		name, hz, rating, read, revmap);
+}
 
 extern int clocksource_i8253_init(void);
 
