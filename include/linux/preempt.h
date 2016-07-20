@@ -27,17 +27,23 @@
  *         SOFTIRQ_MASK:	0x0000ff00
  *         HARDIRQ_MASK:	0x000f0000
  *             NMI_MASK:	0x00100000
+ *         PIPELINE_MASK:	0x00200000
+ *         STAGE_MASK:		0x00400000
  * PREEMPT_NEED_RESCHED:	0x80000000
  */
 #define PREEMPT_BITS	8
 #define SOFTIRQ_BITS	8
 #define HARDIRQ_BITS	4
 #define NMI_BITS	1
+#define PIPELINE_BITS	1
+#define STAGE_BITS	1
 
 #define PREEMPT_SHIFT	0
 #define SOFTIRQ_SHIFT	(PREEMPT_SHIFT + PREEMPT_BITS)
 #define HARDIRQ_SHIFT	(SOFTIRQ_SHIFT + SOFTIRQ_BITS)
 #define NMI_SHIFT	(HARDIRQ_SHIFT + HARDIRQ_BITS)
+#define PIPELINE_SHIFT	(NMI_SHIFT + NMI_BITS)
+#define STAGE_SHIFT	(PIPELINE_SHIFT + PIPELINE_BITS)
 
 #define __IRQ_MASK(x)	((1UL << (x))-1)
 
@@ -45,11 +51,15 @@
 #define SOFTIRQ_MASK	(__IRQ_MASK(SOFTIRQ_BITS) << SOFTIRQ_SHIFT)
 #define HARDIRQ_MASK	(__IRQ_MASK(HARDIRQ_BITS) << HARDIRQ_SHIFT)
 #define NMI_MASK	(__IRQ_MASK(NMI_BITS)     << NMI_SHIFT)
+#define PIPELINE_MASK	(__IRQ_MASK(PIPELINE_BITS) << PIPELINE_SHIFT)
+#define STAGE_MASK	(__IRQ_MASK(STAGE_BITS) << STAGE_SHIFT)
 
 #define PREEMPT_OFFSET	(1UL << PREEMPT_SHIFT)
 #define SOFTIRQ_OFFSET	(1UL << SOFTIRQ_SHIFT)
 #define HARDIRQ_OFFSET	(1UL << HARDIRQ_SHIFT)
 #define NMI_OFFSET	(1UL << NMI_SHIFT)
+#define PIPELINE_OFFSET	(1UL << PIPELINE_SHIFT)
+#define STAGE_OFFSET	(1UL << STAGE_SHIFT)
 
 #define SOFTIRQ_DISABLE_OFFSET	(2 * SOFTIRQ_OFFSET)
 
@@ -82,6 +92,9 @@
 #define irq_count()	(preempt_count() & (HARDIRQ_MASK | SOFTIRQ_MASK \
 				 | NMI_MASK))
 
+/* The current IRQ stage level: 0=inband, 1=oob */
+#define stage_level()	((preempt_count() & STAGE_MASK) >> STAGE_SHIFT)
+
 /*
  * Are we doing bottom half or hardware interrupt processing?
  *
@@ -91,6 +104,7 @@
  * in_serving_softirq() - We're in softirq context
  * in_nmi()       - We're in NMI context
  * in_task()	  - We're in task context
+ * in_pipeline()  - We're on pipeline entry
  *
  * Note: due to the BH disabled confusion: in_softirq(),in_interrupt() really
  *       should not be used in new code.
@@ -102,6 +116,7 @@
 #define in_nmi()		(preempt_count() & NMI_MASK)
 #define in_task()		(!(preempt_count() & \
 				   (NMI_MASK | HARDIRQ_MASK | SOFTIRQ_OFFSET)))
+#define in_pipeline()		(preempt_count() & PIPELINE_MASK)
 
 /*
  * The preempt_count offset after preempt_disable();

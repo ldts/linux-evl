@@ -17,6 +17,8 @@ enum {
 	_IRQ_PER_CPU_DEVID	= IRQ_PER_CPU_DEVID,
 	_IRQ_IS_POLLED		= IRQ_IS_POLLED,
 	_IRQ_DISABLE_UNLAZY	= IRQ_DISABLE_UNLAZY,
+	_IRQ_OOB		= IRQ_OOB,
+	_IRQ_CHAINED		= IRQ_CHAINED,
 	_IRQF_MODIFY_MASK	= IRQF_MODIFY_MASK,
 };
 
@@ -31,6 +33,8 @@ enum {
 #define IRQ_PER_CPU_DEVID	GOT_YOU_MORON
 #define IRQ_IS_POLLED		GOT_YOU_MORON
 #define IRQ_DISABLE_UNLAZY	GOT_YOU_MORON
+#define IRQ_OOB			GOT_YOU_MORON
+#define IRQ_CHAINED		GOT_YOU_MORON
 #undef IRQF_MODIFY_MASK
 #define IRQF_MODIFY_MASK	GOT_YOU_MORON
 
@@ -166,4 +170,34 @@ static inline bool irq_settings_disable_unlazy(struct irq_desc *desc)
 static inline void irq_settings_clr_disable_unlazy(struct irq_desc *desc)
 {
 	desc->status_use_accessors &= ~_IRQ_DISABLE_UNLAZY;
+}
+
+static inline bool irq_settings_is_oob(struct irq_desc *desc)
+{
+	return desc->status_use_accessors & _IRQ_OOB;
+}
+
+static inline void irq_settings_clr_oob(struct irq_desc *desc)
+{
+	desc->status_use_accessors &= ~_IRQ_OOB;
+}
+
+static inline void irq_settings_set_oob(struct irq_desc *desc)
+{
+	desc->status_use_accessors |= _IRQ_OOB;
+}
+
+static inline bool irq_settings_is_chained(struct irq_desc *desc)
+{
+	return desc->status_use_accessors & _IRQ_CHAINED;
+}
+
+static inline void irq_settings_set_chained(struct irq_desc *desc)
+{
+	desc->status_use_accessors |= _IRQ_CHAINED;
+}
+
+static inline void irq_settings_clr_chained(struct irq_desc *desc)
+{
+	desc->status_use_accessors &= ~_IRQ_CHAINED;
 }

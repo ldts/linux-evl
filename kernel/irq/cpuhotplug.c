@@ -155,6 +155,9 @@ void irq_migrate_all_off_this_cpu(void)
 {
 	struct irq_desc *desc;
 	unsigned int irq;
+	unsigned long flags;
+
+	flags = hard_local_irq_save();
 
 	for_each_active_irq(irq) {
 		bool affinity_broken;
@@ -169,6 +172,8 @@ void irq_migrate_all_off_this_cpu(void)
 					    irq, smp_processor_id());
 		}
 	}
+
+	hard_local_irq_restore(flags);
 }
 
 static void irq_restore_affinity_of_irq(struct irq_desc *desc, unsigned int cpu)

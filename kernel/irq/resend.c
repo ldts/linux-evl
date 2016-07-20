@@ -16,10 +16,11 @@
 #include <linux/module.h>
 #include <linux/random.h>
 #include <linux/interrupt.h>
+#include <linux/irq_pipeline.h>
 
 #include "internals.h"
 
-#ifdef CONFIG_HARDIRQS_SW_RESEND
+#if defined(CONFIG_HARDIRQS_SW_RESEND) && !defined(CONFIG_IRQ_PIPELINE)
 
 /* Bitmap to handle software resend of interrupts: */
 static DECLARE_BITMAP(irqs_resend, IRQ_BITMAP_BITS);
@@ -68,6 +69,9 @@ void check_irq_resend(struct irq_desc *desc)
 		return;
 	if (desc->istate & IRQS_PENDING) {
 		desc->istate &= ~IRQS_PENDING;
+#ifdef CONFIG_IRQ_PIPELINE
+		irq_inject_pipeline(irq_desc_get_irq(desc));
+#else
 		desc->istate |= IRQS_REPLAY;
 
 		if (!desc->irq_data.chip->irq_retrigger ||
@@ -96,5 +100,6 @@ void check_irq_resend(struct irq_desc *desc)
 			tasklet_schedule(&resend_tasklet);
 #endif
 		}
+#endif	/* CONFIG_IRQ_PIPELINE */
 	}
 }

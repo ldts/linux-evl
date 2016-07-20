@@ -806,6 +806,16 @@ config DEBUG_SHIRQ
 	  Drivers ought to be able to handle interrupts coming in at those
 	  points; some don't and need to be caught.
 
+config DEBUG_IRQ_PIPELINE
+	bool "Debug IRQ pipeline"
+	depends on IRQ_PIPELINE && DEBUG_KERNEL
+	---help---
+	  Turn on this option for enabling debug checks related to
+	  interrupt pipelining, like interrupt state consistency and
+	  proper context isolation between the in-band and oob stages.
+
+	  If unsure, say N.
+
 menu "Debug Lockups and Hangs"
 
 config LOCKUP_DETECTOR
