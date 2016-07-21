@@ -1001,7 +1001,7 @@ struct irq_chip_type {
  * different flow mechanisms (level/edge) for it.
  */
 struct irq_chip_generic {
-	raw_spinlock_t		lock;
+	hard_spinlock_t		lock;
 	void __iomem		*reg_base;
 	u32			(*reg_readl)(void __iomem *addr);
 	void			(*reg_writel)(u32 val, void __iomem *addr);
