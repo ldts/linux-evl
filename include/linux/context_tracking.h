@@ -108,7 +108,7 @@ static inline void guest_enter_irqoff(void)
 	else
 		current->flags |= PF_VCPU;
 
-	if (context_tracking_is_enabled())
+	if (running_inband() && context_tracking_is_enabled())
 		__context_tracking_enter(CONTEXT_GUEST);
 
 	/* KVM does not hold any references to rcu protected data when it
