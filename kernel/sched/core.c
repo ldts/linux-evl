@@ -3331,6 +3331,8 @@ static inline void schedule_debug(struct task_struct *prev)
 		panic("corrupted stack end detected inside scheduler\n");
 #endif
 
+	check_inband_stage();
+
 	if (unlikely(in_atomic_preempt_off())) {
 		__schedule_bug(prev);
 		preempt_count_set(PREEMPT_DISABLED);
