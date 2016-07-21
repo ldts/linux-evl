@@ -1201,6 +1201,12 @@ config DEBUG_LOCK_ALLOC
 	 spin_lock_init()/mutex_init()/etc., or whether there is any lock
 	 held during task exit.
 
+if IRQ_PIPELINE && PROVE_LOCKING
+comment "WARNING! PROVE_LOCKING induces **massive** latency"
+comment "overhead for the co-kernel running on the head"
+comment "interrupt stage."
+endif
+
 config LOCKDEP
 	bool
 	depends on DEBUG_KERNEL && LOCK_DEBUGGING_SUPPORT

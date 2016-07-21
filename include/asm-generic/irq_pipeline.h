@@ -111,4 +111,9 @@ static inline bool irq_pipeline_debug(void)
 		!irq_pipeline_oopsing;
 }
 
+static inline bool irq_pipeline_debug_locking(void)
+{
+	return irqs_pipelined() && IS_ENABLED(CONFIG_LOCKDEP);
+}
+
 #endif /* __ASM_GENERIC_IRQ_PIPELINE_H */
