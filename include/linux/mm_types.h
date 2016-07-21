@@ -14,6 +14,7 @@
 #include <linux/uprobes.h>
 #include <linux/page-flags-layout.h>
 #include <linux/workqueue.h>
+#include <dovetail/mm_info.h>
 
 #include <asm/mmu.h>
 
@@ -495,6 +496,9 @@ struct mm_struct {
 		struct uprobes_state uprobes_state;
 #ifdef CONFIG_HUGETLB_PAGE
 		atomic_long_t hugetlb_usage;
+#endif
+#ifdef CONFIG_DOVETAIL
+		struct oob_mm_state oob_state;
 #endif
 		struct work_struct async_put_work;
 

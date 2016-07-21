@@ -1,0 +1,14 @@
+
+# DOVETAIL co-kernel interface
+config HAVE_DOVETAIL
+	bool
+
+config DOVETAIL
+	bool "Dovetail interface"
+	depends on HAVE_DOVETAIL
+	select IRQ_PIPELINE
+	default n
+	---help---
+	  Activate this option if you want to enable the interface for
+	  running a secondary kernel side-by-side with Linux (aka
+	  "dual kernel" configuration).

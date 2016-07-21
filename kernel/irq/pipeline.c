@@ -10,6 +10,7 @@
 #include <linux/irqdomain.h>
 #include <linux/irq_pipeline.h>
 #include <linux/irq_work.h>
+#include <linux/dovetail.h>
 #include <trace/events/irq.h>
 #include "internals.h"
 
@@ -743,6 +744,18 @@ void __weak enter_oob_irq(void) { }
 
 void __weak exit_oob_irq(void) { }
 
+static inline void check_pending_mayday(struct pt_regs *regs)
+{
+#ifdef CONFIG_DOVETAIL
+	/*
+	 * Sending MAYDAY is in essence a rare case, so prefer test
+	 * then maybe clear over test_and_clear.
+	 */
+	if (user_mode(regs) && test_thread_flag(TIF_MAYDAY))
+		dovetail_call_mayday(current_thread_info(), regs);
+#endif
+}
+
 static inline
 irqreturn_t __call_action_handler(struct irqaction *action,
 				  struct irq_desc *desc)
@@ -1011,6 +1024,7 @@ int generic_pipeline_irq(unsigned int irq, struct pt_regs *regs)
 	 */
 	exit_oob_irq();
 	synchronize_pipeline_on_irq();
+	check_pending_mayday(regs);
 	trace_irq_pipeline_exit(irq);
 out:
 	set_irq_regs(old_regs);
