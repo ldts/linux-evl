@@ -23,6 +23,7 @@
 #include <linux/rcupdate.h>
 #include <linux/refcount.h>
 #include <linux/resource.h>
+#include <linux/irqstage.h>
 #include <linux/latencytop.h>
 #include <linux/sched/prio.h>
 #include <linux/signal_types.h>
@@ -113,6 +114,12 @@ struct task_group;
 #define task_contributes_to_load(task)	((task->state & TASK_UNINTERRUPTIBLE) != 0 && \
 					 (task->flags & PF_FROZEN) == 0 && \
 					 (task->state & TASK_NOLOAD) == 0)
+
+#ifdef CONFIG_DOVETAIL
+#define task_is_off_stage(task)		test_ti_local_flags(task_thread_info(task), _TLF_OFFSTAGE)
+#else
+#define task_is_off_stage(task)		0
+#endif
 
 #ifdef CONFIG_DEBUG_ATOMIC_SLEEP
 

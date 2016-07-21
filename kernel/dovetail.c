@@ -12,6 +12,43 @@
 
 static bool dovetail_enabled;
 
+void __weak arch_inband_task_init(struct task_struct *p)
+{
+}
+
+void inband_task_init(struct task_struct *p)
+{
+	struct thread_info *ti = task_thread_info(p);
+
+	clear_ti_local_flags(ti, _TLF_DOVETAIL|_TLF_OOB|_TLF_OFFSTAGE);
+	arch_inband_task_init(p);
+}
+
+void dovetail_init_altsched(struct dovetail_altsched_context *p)
+{
+	struct task_struct *tsk = current;
+
+	check_inband_stage();
+	p->task = tsk;
+	p->active_mm = tsk->mm;
+	p->borrowed_mm = false;
+}
+EXPORT_SYMBOL_GPL(dovetail_init_altsched);
+
+void dovetail_start_altsched(void)
+{
+	check_inband_stage();
+	set_thread_local_flags(_TLF_DOVETAIL);
+}
+EXPORT_SYMBOL_GPL(dovetail_start_altsched);
+
+void dovetail_stop_altsched(void)
+{
+	clear_thread_local_flags(_TLF_DOVETAIL);
+	clear_thread_flag(TIF_MAYDAY);
+}
+EXPORT_SYMBOL_GPL(dovetail_stop_altsched);
+
 void __weak handle_oob_syscall(struct pt_regs *regs)
 {
 }
@@ -196,6 +233,90 @@ void inband_event_notify(enum inband_event_type event, void *data)
 
 	if (dovetail_enabled)
 		handle_inband_event(event, data);
+}
+
+void __weak resume_oob_task(struct task_struct *p)
+{
+}
+
+static void finalize_oob_transition(void) /* hard IRQs off */
+{
+	struct irq_pipeline_data *pd;
+	struct irq_stage_data *p;
+	struct task_struct *t;
+
+	check_inband_stage();
+	pd = raw_cpu_ptr(&irq_pipeline);
+	t = pd->task_inflight;
+	if (t == NULL)
+		return;
+
+	/*
+	 * @t which is in flight to the oob stage might have received
+	 * a signal while waiting in off-stage state to be actually
+	 * scheduled out. We can't act upon that signal safely from
+	 * here, we simply let the task complete the migration process
+	 * to the oob stage. The pending signal will be handled when
+	 * the task eventually exits the out-of-band context by the
+	 * converse migration.
+	 */
+	pd->task_inflight = NULL;
+
+	/*
+	 * IRQs are hard disabled, but the stage transition handler
+	 * may assume the oob stage is stalled: fix this up.
+	 */
+	p = this_oob_staged();
+	set_stage_bit(STAGE_STALL_BIT, p);
+	resume_oob_task(t);
+	clear_stage_bit(STAGE_STALL_BIT, p);
+	if (stage_irqs_pending(p))
+		/* Current stage (in-band) != p->stage (oob). */
+		sync_stage(p->stage);
+}
+
+void oob_trampoline(void)
+{
+	unsigned long flags;
+
+	flags = hard_local_irq_save();
+	finalize_oob_transition();
+	hard_local_irq_restore(flags);
+}
+
+int inband_switch_tail(void)
+{
+	bool inband;
+
+	check_hard_irqs_disabled();
+
+	/*
+	 * We may run this code either over the inband or oob
+	 * contexts. If inband, we may have a thread blocked in
+	 * dovetail_leave_inband(), waiting for the co-kernel to
+	 * schedule it back in over the oob context:
+	 * finalize_oob_transition() should take care of it. If oob,
+	 * the co-kernel just switched us back, and we may update the
+	 * context markers.
+	 *
+	 * CAUTION: The preemption count may not reflect the active
+	 * stage yet, so use the current stage pointer to determine
+	 * which one we are on.
+	 */
+	inband = current_stage == &inband_stage;
+	if (inband)
+		finalize_oob_transition();
+	else {
+		set_thread_local_flags(_TLF_OOB);
+		WARN_ON_ONCE(dovetail_debug() &&
+			     (preempt_count() & STAGE_MASK));
+		preempt_count_add(STAGE_OFFSET);
+	}
+
+	if (inband)
+		hard_local_irq_enable();
+
+	return !inband;
 }
 
 int dovetail_start(void)

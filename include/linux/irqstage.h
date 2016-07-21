@@ -49,6 +49,10 @@ struct irq_pipeline_data {
 	struct irq_stage_data stages[2];
 	struct irq_stage_data *__curr;
 	struct pt_regs tick_regs;
+#ifdef CONFIG_DOVETAIL
+	struct task_struct *task_inflight;
+	struct task_struct *rqlock_owner;
+#endif
 };
 
 DECLARE_PER_CPU(struct irq_pipeline_data, irq_pipeline);
