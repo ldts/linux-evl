@@ -3662,7 +3662,7 @@ asmlinkage __visible void __sched notrace preempt_schedule(void)
 	 * If there is a non-zero preempt_count or interrupts are disabled,
 	 * we do not want to preempt the current task. Just return..
 	 */
-	if (likely(!preemptible()))
+	if (likely(!running_inband() || !preemptible()))
 		return;
 
 	preempt_schedule_common();
@@ -3688,7 +3688,7 @@ asmlinkage __visible void __sched notrace preempt_schedule_notrace(void)
 {
 	enum ctx_state prev_ctx;
 
-	if (likely(!preemptible()))
+	if (likely(!running_inband() || !preemptible()))
 		return;
 
 	do {
@@ -3724,6 +3724,27 @@ EXPORT_SYMBOL_GPL(preempt_schedule_notrace);
 
 #endif /* CONFIG_PREEMPT */
 
+#ifdef CONFIG_IRQ_PIPELINE
+static inline void preempt_sync_inband_irqs(unsigned long flags)
+{
+	struct irq_stage_data *p;
+
+	hard_local_irq_disable();
+	p = this_inband_staged();
+	if (unlikely(stage_irqs_pending(p))) {
+		preempt_disable();
+		trace_hardirqs_on();
+		clear_stage_bit(STAGE_STALL_BIT, p);
+		sync_current_stage();
+		preempt_enable_no_resched_notrace();
+	}
+	/* We leave IRQs hard disabled. */
+	inband_irq_restore_nosync(flags);
+}
+#else
+static inline void preempt_sync_inband_irqs(unsigned long flags) { }
+#endif
+
 /*
  * this is the entry point to schedule() from kernel preemption
  * off of irq context.
@@ -3733,6 +3754,13 @@ EXPORT_SYMBOL_GPL(preempt_schedule_notrace);
 asmlinkage __visible void __sched preempt_schedule_irq(void)
 {
 	enum ctx_state prev_state;
+	unsigned long flags;
+
+	if (irqs_pipelined()) {
+		WARN_ON_ONCE(!hard_irqs_disabled());
+		local_irq_save(flags);
+		hard_local_irq_enable();
+	}
 
 	/* Catch callers which need to be fixed */
 	BUG_ON(preempt_count() || !irqs_disabled());
@@ -3746,6 +3774,15 @@ asmlinkage __visible void __sched preempt_schedule_irq(void)
 		local_irq_disable();
 		sched_preempt_enable_no_resched();
 	} while (need_resched());
+
+	/*
+	 * If pipelining interrupts, flush any pending IRQ that might
+	 * have been logged since the last time we stalled the in-band
+	 * stage. The caller is expected to call us back again until
+	 * need_resched is clear, so we just need to synchronize the
+	 * in-band stage log.
+	 */
+	preempt_sync_inband_irqs(flags);
 
 	exception_exit(prev_state);
 }
