@@ -468,6 +468,10 @@ int __init clocksource_user_dual_mmio_init(
 	}
 	spin_unlock(&user_clksrcs_lock);
 
+#ifdef arch_clocksource_user_mmio_init
+	arch_clocksource_user_mmio_init(&cs->mmio.clksrc, cs->id);
+#endif
+
 	if (cs->id >= CLKSRC_USER_MMIO_MAX)
 		pr_warn("%s: Too many clocksources\n", name);
 

@@ -30,7 +30,7 @@
  */
 struct vdso_data {
 	u32 seq_count;		/* sequence count - odd during updates */
-	u16 tk_is_cntvct;	/* fall back to syscall if false */
+	u32 cs_type_and_seq;	/* clocksource type and change count */
 	u16 cs_shift;		/* clocksource shift */
 	u32 xtime_coarse_sec;	/* coarse time */
 	u32 xtime_coarse_nsec;
@@ -46,6 +46,7 @@ struct vdso_data {
 	u64 xtime_clock_snsec;	/* CLOCK_REALTIME sub-ns base */
 	u32 tz_minuteswest;	/* timezone info for gettimeofday(2) */
 	u32 tz_dsttime;
+	unsigned char mmio_dev_name[64];
 };
 
 union vdso_data_store {
