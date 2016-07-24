@@ -13,6 +13,7 @@
 #include <linux/sched/task_stack.h>
 #include <linux/sched/cputime.h>
 #include <linux/interrupt.h>
+#include <linux/irq_pipeline.h>
 #include <linux/module.h>
 #include <linux/capability.h>
 #include <linux/completion.h>
@@ -831,6 +832,7 @@ void __noreturn do_exit(long code)
 	 */
 	raw_spin_lock_irq(&tsk->pi_lock);
 	raw_spin_unlock_irq(&tsk->pi_lock);
+	inband_exit_notify();
 
 	if (unlikely(in_atomic())) {
 		pr_info("note: %s[%d] exited with preempt_count %d\n",
