@@ -33,6 +33,9 @@ EXPORT_SYMBOL_GPL(synthetic_irq_domain);
 bool irq_pipeline_oopsing;
 EXPORT_SYMBOL_GPL(irq_pipeline_oopsing);
 
+bool irq_pipeline_active;
+EXPORT_SYMBOL_GPL(irq_pipeline_active);
+
 #define IRQ_LOW_MAPSZ	DIV_ROUND_UP(IRQ_BITMAP_BITS, BITS_PER_LONG)
 
 #if IRQ_LOW_MAPSZ > BITS_PER_LONG
@@ -1478,6 +1481,8 @@ void __init irq_pipeline_init(void)
 	 * arch-specific code for enabling the pipeline.
 	 */
 	arch_irq_pipeline_init();
+
+	irq_pipeline_active = true;
 
 	pr_info("IRQ pipeline enabled\n");
 }
