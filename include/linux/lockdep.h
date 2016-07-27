@@ -298,21 +298,22 @@ extern void lockdep_init_map(struct lockdep_map *lock, const char *name,
  * or they are too narrow (they suffer from a false class-split):
  */
 #define lockdep_set_class(lock, key) \
-		lockdep_init_map(&(lock)->dep_map, #key, key, 0)
+	lockdep_init_map(LOCKDEP_ALTERNATIVES(lock), #key, key, 0)
 #define lockdep_set_class_and_name(lock, key, name) \
-		lockdep_init_map(&(lock)->dep_map, name, key, 0)
+	lockdep_init_map(LOCKDEP_ALTERNATIVES(lock), name, key, 0)
 #define lockdep_set_class_and_subclass(lock, key, sub) \
-		lockdep_init_map(&(lock)->dep_map, #key, key, sub)
+	lockdep_init_map(LOCKDEP_ALTERNATIVES(lock), #key, key, sub)
 #define lockdep_set_subclass(lock, sub)	\
-		lockdep_init_map(&(lock)->dep_map, #lock, \
-				 (lock)->dep_map.key, sub)
+	lockdep_init_map(LOCKDEP_ALTERNATIVES(lock), #lock,	\
+			 LOCKDEP_ALTERNATIVES(lock)->key, sub)
 
 #define lockdep_set_novalidate_class(lock) \
 	lockdep_set_class_and_name(lock, &__lockdep_no_validate__, #lock)
 /*
  * Compare locking classes
  */
-#define lockdep_match_class(lock, key) lockdep_match_key(&(lock)->dep_map, key)
+#define lockdep_match_class(lock, key) \
+	lockdep_match_key(LOCKDEP_ALTERNATIVES(lock), key)
 
 static inline int lockdep_match_key(struct lockdep_map *lock,
 				    struct lock_class_key *key)
