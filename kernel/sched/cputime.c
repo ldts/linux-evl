@@ -245,6 +245,10 @@ static __always_inline u64 steal_account_process_time(u64 maxtime)
 		return steal;
 	}
 #endif
+#ifdef CONFIG_IRQ_PIPELINE
+	if (irq_pipeline_steal_tick())
+		return maxtime;
+#endif
 	return 0;
 }
 
