@@ -17,7 +17,7 @@
 		__locked;						\
 	})
 
-#if defined(CONFIG_SMP) || defined(CONFIG_DEBUG_SPINLOCK)
+#define mutable_spin_lock_init(__rlock)	hard_spin_lock_init(__rlock)
 
 #define hard_lock_acquire(__rlock, __try, __ip)				\
 	do {								\
@@ -30,6 +30,8 @@
 		if (irq_pipeline_debug_locking())			\
 			spin_release(&(__rlock)->dep_map, 1, __ip);	\
 	} while (0)
+
+#if defined(CONFIG_SMP) || defined(CONFIG_DEBUG_SPINLOCK)
 
 #ifdef CONFIG_DEBUG_SPINLOCK
 #define hard_spin_lock_init(__lock)				\
@@ -172,5 +174,136 @@ int hard_spin_is_contended(struct raw_spinlock *rlock)
 #define hard_spin_is_locked(__rlock)	((void)(__rlock), 0)
 #define hard_spin_is_contended(__rlock)	((void)(__rlock), 0)
 #endif	/* !SMP && !DEBUG_SPINLOCK */
+
+/*
+ * In the pipeline entry context, the regular preemption and root
+ * stall logic do not apply since we may actually have preempted any
+ * critical section of the kernel which is protected by regular
+ * locking (spin or stall), or we may even have preempted the head
+ * stage. Therefore, we just need to grab the raw spinlock underlying
+ * a mutable spinlock to exclude other CPUs.
+ *
+ * NOTE: When entering the pipeline, IRQs are already hard disabled.
+ */
+
+void __mutable_spin_lock(struct raw_spinlock *rlock);
+
+static inline void mutable_spin_lock(struct raw_spinlock *rlock)
+{
+	if (in_pipeline()) {
+		hard_lock_acquire(rlock, 0, _THIS_IP_);
+		LOCK_CONTENDED(rlock, do_raw_spin_trylock, do_raw_spin_lock);
+	} else
+		__mutable_spin_lock(rlock);
+}
+
+void __mutable_spin_unlock(struct raw_spinlock *rlock);
+
+static inline void mutable_spin_unlock(struct raw_spinlock *rlock)
+{
+	if (in_pipeline()) {
+		hard_lock_release(rlock, _THIS_IP_);
+		do_raw_spin_unlock(rlock);
+	} else
+		__mutable_spin_unlock(rlock);
+}
+
+void __mutable_spin_lock_irq(struct raw_spinlock *rlock);
+
+static inline void mutable_spin_lock_irq(struct raw_spinlock *rlock)
+{
+	if (in_pipeline()) {
+		hard_lock_acquire(rlock, 0, _THIS_IP_);
+		LOCK_CONTENDED(rlock, do_raw_spin_trylock, do_raw_spin_lock);
+	} else
+		__mutable_spin_lock_irq(rlock);
+}
+
+void __mutable_spin_unlock_irq(struct raw_spinlock *rlock);
+
+static inline void mutable_spin_unlock_irq(struct raw_spinlock *rlock)
+{
+	if (in_pipeline()) {
+		hard_lock_release(rlock, _THIS_IP_);
+		do_raw_spin_unlock(rlock);
+	} else
+		__mutable_spin_unlock_irq(rlock);
+}
+
+unsigned long __mutable_spin_lock_irqsave(struct raw_spinlock *rlock);
+
+#define mutable_spin_lock_irqsave(__rlock, __flags)			\
+	do {								\
+		if (in_pipeline()) {					\
+			hard_lock_acquire(__rlock, 0, _THIS_IP_);	\
+			LOCK_CONTENDED(__rlock, do_raw_spin_trylock, do_raw_spin_lock); \
+			(__flags) = hard_local_save_flags();		\
+		} else							\
+			(__flags) = __mutable_spin_lock_irqsave(__rlock); \
+	} while (0)
+
+void __mutable_spin_unlock_irqrestore(struct raw_spinlock *rlock,
+				      unsigned long flags);
+
+static inline void mutable_spin_unlock_irqrestore(struct raw_spinlock *rlock,
+						  unsigned long flags)
+{
+
+	if (in_pipeline()) {
+		hard_lock_release(rlock, _THIS_IP_);
+		do_raw_spin_unlock(rlock);
+	} else
+		__mutable_spin_unlock_irqrestore(rlock, flags);
+}
+
+int __mutable_spin_trylock(struct raw_spinlock *rlock);
+
+static inline int mutable_spin_trylock(struct raw_spinlock *rlock)
+{
+	if (in_pipeline()) {
+		if (do_raw_spin_trylock(rlock)) {
+			hard_lock_acquire(rlock, 1, _THIS_IP_);
+			return 1;
+		}
+		return 0;
+	}
+
+	return __mutable_spin_trylock(rlock);
+}
+
+int __mutable_spin_trylock_irqsave(struct raw_spinlock *rlock,
+				   unsigned long *flags);
+
+#define mutable_spin_trylock_irqsave(__rlock, __flags)			\
+	({								\
+		int __ret = 1;						\
+		if (in_pipeline()) {					\
+			if (do_raw_spin_trylock(__rlock)) {		\
+				hard_lock_acquire(__rlock, 1, _THIS_IP_); \
+				(__flags) = hard_local_save_flags();	\
+			} else						\
+				__ret = 0;				\
+		} else							\
+			__ret = __mutable_spin_trylock_irqsave(__rlock, &(__flags)); \
+		__ret;							\
+	})
+
+static inline int mutable_spin_trylock_irq(struct raw_spinlock *rlock)
+{
+	unsigned long flags;
+	return mutable_spin_trylock_irqsave(rlock, flags);
+}
+
+static inline
+int mutable_spin_is_locked(struct raw_spinlock *rlock)
+{
+	return hard_spin_is_locked(rlock);
+}
+
+static inline
+int mutable_spin_is_contended(struct raw_spinlock *rlock)
+{
+	return hard_spin_is_contended(rlock);
+}
 
 #endif /* __LINUX_SPINLOCK_PIPELINE_H */
