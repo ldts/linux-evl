@@ -101,6 +101,15 @@ void __init init_IRQ(void)
 	uniphier_cache_init();
 }
 
+#ifdef CONFIG_IRQ_PIPELINE
+asmlinkage int __exception_irq_entry
+handle_arch_irq_pipelined(struct pt_regs *regs)
+{
+	handle_arch_irq(regs);
+	return running_inband() && !irqs_disabled();
+}
+#endif
+
 #ifdef CONFIG_SPARSE_IRQ
 int __init arch_probe_nr_irqs(void)
 {

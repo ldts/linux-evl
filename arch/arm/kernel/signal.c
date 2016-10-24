@@ -645,6 +645,11 @@ static int do_signal(struct pt_regs *regs, int syscall)
 asmlinkage int
 do_work_pending(struct pt_regs *regs, unsigned int thread_flags, int syscall)
 {
+	bool stalled = irqs_disabled();
+	int ret = 0;
+
+	local_irq_disable();
+
 	/*
 	 * The assembly code enters us with IRQs off, but it hasn't
 	 * informed the tracing code of that for efficiency reasons.
@@ -653,11 +658,12 @@ do_work_pending(struct pt_regs *regs, unsigned int thread_flags, int syscall)
 	trace_hardirqs_off();
 	do {
 		if (likely(thread_flags & _TIF_NEED_RESCHED)) {
+			hard_cond_local_irq_enable();
 			schedule();
 		} else {
 			if (unlikely(!user_mode(regs)))
-				return 0;
-			local_irq_enable();
+				goto out;
+			local_irq_enable_full();
 			if (thread_flags & _TIF_SIGPENDING) {
 				int restart = do_signal(regs, syscall);
 				if (unlikely(restart)) {
@@ -666,7 +672,8 @@ do_work_pending(struct pt_regs *regs, unsigned int thread_flags, int syscall)
 					 * Deal with it without leaving
 					 * the kernel space.
 					 */
-					return restart;
+					ret = restart;
+					goto out;
 				}
 				syscall = 0;
 			} else if (thread_flags & _TIF_UPROBE) {
@@ -677,10 +684,23 @@ do_work_pending(struct pt_regs *regs, unsigned int thread_flags, int syscall)
 				rseq_handle_notify_resume(NULL, regs);
 			}
 		}
-		local_irq_disable();
+		local_irq_disable_full();
 		thread_flags = current_thread_info()->flags;
 	} while (thread_flags & _TIF_WORK_MASK);
-	return 0;
+
+	hard_cond_local_irq_enable();
+out:
+	if (irqs_pipelined()) {
+		local_irq_enable();
+		if (stalled) {
+			local_irq_disable();
+			if (IS_ENABLED(CONFIG_DEBUG_IRQ_PIPELINE))
+				WARN_ON_ONCE(user_mode(regs));
+		}
+		hard_local_irq_disable();
+	}
+
+	return ret;
 }
 
 struct page *get_signal_page(void)

@@ -33,9 +33,14 @@ extern void show_ipi_list(struct seq_file *, int);
 asmlinkage void do_IPI(int ipinr, struct pt_regs *regs);
 
 /*
- * Called from C code, this handles an IPI.
+ * Called from C code, this handles an IPI (including oob).
  */
 void handle_IPI(int ipinr, struct pt_regs *regs);
+
+/*
+ * Handles IPIs for the in-band stage exclusively.
+ */
+void __handle_IPI(int ipinr, struct pt_regs *regs);
 
 /*
  * Setup the set of possible CPUs (via set_cpu_possible)
@@ -47,6 +52,11 @@ extern void smp_init_cpus(void);
  * Provide a function to raise an IPI cross call on CPUs in callmap.
  */
 extern void set_smp_cross_call(void (*)(const struct cpumask *, unsigned int));
+
+/*
+ * Raise an IPI.
+ */
+void smp_cross_call(const struct cpumask *target, unsigned int ipinr);
 
 /*
  * Called from platform specific assembly code, this is the

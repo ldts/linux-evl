@@ -72,7 +72,7 @@ void arch_cpu_idle(void)
 		arm_pm_idle();
 	else
 		cpu_do_idle();
-	local_irq_enable();
+	local_irq_enable_full();
 }
 
 void arch_cpu_idle_prepare(void)

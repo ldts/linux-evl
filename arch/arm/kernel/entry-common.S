@@ -146,11 +146,16 @@ no_work_pending:
 	restore_user_regs fast = 0, offset = 0
 ENDPROC(ret_to_user_from_irq)
 ENDPROC(ret_to_user)
+ENTRY(fast_ret_to_user)
+	disable_irq_notrace
+	b	no_work_pending
+ENDPROC(fast_ret_to_user)
 
 /*
  * This is how we return from a fork.
  */
 ENTRY(ret_from_fork)
+	enable_irq_if_pipelined
 	bl	schedule_tail
 	cmp	r5, #0
 	movne	r0, r4
