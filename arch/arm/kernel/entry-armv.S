@@ -35,6 +35,7 @@
 #include "entry-header.S"
 #include <asm/entry-macro-multi.S>
 #include <asm/probes.h>
+#include <asm/dovetail.h>
 
 /*
  * Interrupt handling.
@@ -274,6 +275,16 @@ __und_svc:
 	svc_entry MAX_STACK_SIZE
 #else
 	svc_entry
+#endif
+#ifdef CONFIG_DOVETAIL
+	get_thread_info tsk
+	ldr	r0, [tsk, #TI_PREEMPT]		@ get preempt count
+	tst	r0, #TI_OOB_MASK		@ oob stage?
+	beq	1f
+	mov	r0, #ARM_TRAP_UNDEFINSTR
+	mov	r1, sp				@ r1 = &regs
+	bl	__oob_trap_notify
+1:
 #endif
 	@
 	@ call emulation code, which returns using r9 if it has emulated

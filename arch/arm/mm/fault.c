@@ -26,10 +26,17 @@
 #include <asm/system_misc.h>
 #include <asm/system_info.h>
 #include <asm/tlbflush.h>
+#include <asm/dovetail.h>
 
 #include "fault.h"
 
 #ifdef CONFIG_MMU
+
+#ifdef CONFIG_DOVETAIL
+#define fault_entry(__exception, __regs)	__fault_entry(__exception, __regs)
+#else
+#define fault_entry(__exception, __regs)	__fault_entry(-1, __regs)
+#endif
 
 #ifdef CONFIG_IRQ_PIPELINE
 /*
@@ -44,12 +51,20 @@
  * helpers. From the main kernel's point of view, there is no change.
  */
 static inline
-unsigned long fault_entry(struct pt_regs *regs)
+unsigned long __fault_entry(unsigned int exception, struct pt_regs *regs)
 {
 	unsigned long flags;
 	int nosync = 1;
 
+	/*
+	 * CAUTION: The co-kernel might demote the current context to
+	 * the in-band stage as a result of handling this trap,
+	 * returning with hard irqs on.
+	 */
+	oob_trap_notify(exception, regs);
+
 	flags = hard_local_irq_save();
+
 	if (hard_irqs_disabled_flags(flags))
 		nosync = test_and_set_stage_bit(STAGE_STALL_BIT,
 					this_inband_staged());
@@ -90,12 +105,12 @@ static inline void fault_exit(unsigned long combo)
 #else	/* !CONFIG_IRQ_PIPELINE */
 
 static inline
-unsigned long fault_entry(struct pt_regs *regs)
+unsigned long __fault_entry(unsigned int exception, struct pt_regs *regs)
 {
 	return 0;
 }
 
-static inline void fault_exit(unsigned long x) { }
+static inline void fault_exit(unsigned long combo) { }
 
 #endif	/* !CONFIG_IRQ_PIPELINE */
 
@@ -267,7 +282,7 @@ void do_bad_area(unsigned long addr, unsigned int fsr, struct pt_regs *regs)
 	 * have no context to handle this fault with.
 	 */
 	if (user_mode(regs)) {
-		irqflags = fault_entry(regs);
+		irqflags = fault_entry(ARM_TRAP_ACCESS, regs);
 		__do_user_fault(tsk, addr, fsr, SIGSEGV, SEGV_MAPERR, regs);
 		fault_exit(irqflags);
 	} else
@@ -345,7 +360,7 @@ do_page_fault(unsigned long addr, unsigned int fsr, struct pt_regs *regs)
 	unsigned int flags = FAULT_FLAG_ALLOW_RETRY | FAULT_FLAG_KILLABLE;
 	unsigned long irqflags;
 
-	irqflags = fault_entry(regs);
+	irqflags = fault_entry(ARM_TRAP_ACCESS, regs);
 
 	if (notify_page_fault(regs, fsr))
 		goto out;
@@ -570,9 +585,7 @@ do_translation_fault(unsigned long addr, unsigned int fsr,
 	return 0;
 
 bad_area:
-	irqflags = fault_entry(regs);
 	do_bad_area(addr, fsr, regs);
-	fault_exit(irqflags);
 	return 0;
 }
 #else					/* CONFIG_MMU */
@@ -594,7 +607,7 @@ do_sect_fault(unsigned long addr, unsigned int fsr, struct pt_regs *regs)
 {
 	unsigned long irqflags;
 
-	irqflags = fault_entry(regs);
+	irqflags = fault_entry(ARM_TRAP_SECTION, regs);
 	do_bad_area(addr, fsr, regs);
 	fault_exit(irqflags);
 	return 0;
@@ -649,7 +662,7 @@ do_DataAbort(unsigned long addr, unsigned int fsr, struct pt_regs *regs)
 	if (!inf->fn(addr, fsr & ~FSR_LNX_PF, regs))
 		return;
 
-	irqflags = fault_entry(regs);
+	irqflags = fault_entry(ARM_TRAP_DABT, regs);
 	pr_alert("Unhandled fault: %s (0x%03x) at 0x%08lx\n",
 		inf->name, fsr, addr);
 	show_pte(current->mm, addr);
@@ -681,7 +694,7 @@ do_PrefetchAbort(unsigned long addr, unsigned int ifsr, struct pt_regs *regs)
 	if (!inf->fn(addr, ifsr | FSR_LNX_PF, regs))
 		return;
 
-	irqflags = fault_entry(regs);
+	irqflags = fault_entry(ARM_TRAP_PABT, regs);
 	pr_alert("Unhandled prefetch abort: %s (0x%03x) at 0x%08lx\n",
 		inf->name, ifsr, addr);
 

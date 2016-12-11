@@ -22,6 +22,7 @@
 #include <linux/init.h>
 #include <linux/sched/signal.h>
 #include <linux/uaccess.h>
+#include <linux/dovetail.h>
 
 #include <asm/cp15.h>
 #include <asm/system_info.h>
@@ -782,6 +783,8 @@ do_alignment(unsigned long addr, unsigned int fsr, struct pt_regs *regs)
 
 	if (interrupts_enabled(regs))
 		hard_local_irq_enable();
+
+	oob_trap_notify(ARM_TRAP_ALIGNMENT, regs);
 
 	instrptr = instruction_pointer(regs);
 

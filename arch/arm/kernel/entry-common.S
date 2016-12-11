@@ -2,6 +2,7 @@
  *  linux/arch/arm/kernel/entry-common.S
  *
  *  Copyright (C) 2000 Russell King
+ *  Copyright (C) 2005 Stelian Pop.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -15,6 +16,7 @@
 #include <asm/memory.h>
 #ifdef CONFIG_AEABI
 #include <asm/unistd-oabi.h>
+#include <uapi/asm/dovetail.h>
 #endif
 
 	.equ	NR_syscalls, __NR_syscalls
@@ -147,7 +149,7 @@ no_work_pending:
 ENDPROC(ret_to_user_from_irq)
 ENDPROC(ret_to_user)
 ENTRY(fast_ret_to_user)
-	disable_irq_notrace
+	disable_irq_notrace			@ disable interrupts
 	b	no_work_pending
 ENDPROC(fast_ret_to_user)
 
@@ -256,6 +258,45 @@ ENTRY(vector_swi)
  TRACE(	ldmia	sp, {r0 - r3}		)
 
 local_restart:
+#ifdef CONFIG_DOVETAIL
+	ldr	r10, [tsk, #TI_LOCAL_FLAGS]	@ tsk(r9) is callee-saved
+	ldr	r0, =(__ARM_NR_dovetail - __NR_SYSCALL_BASE)
+	cmp	scno, r0
+	bne	slow_path
+	tst	r10, #_TLF_OOB
+	beq	slow_path
+	mov	r0, sp				@ regs
+	bl	handle_oob_syscall
+	ldr	r10, [tsk, #TI_LOCAL_FLAGS]
+	tst	r10, #_TLF_OOB
+	bne	fastcall_exit_check		@ check for MAYDAY
+	bl	sync_inband_irqs
+	b	ret_slow_syscall
+fastcall_exit_check:
+	ldr	r10, [tsk, #TI_FLAGS]
+	tst	r10, #_TIF_MAYDAY
+	beq	fast_ret_to_user
+	mov	r0, sp
+	bl	dovetail_call_mayday
+	b	fast_ret_to_user
+slow_path:
+	tst	r10, #_TLF_DOVETAIL
+	bne	pipeline_syscall
+	cmp	scno, r0
+	bne	root_syscall
+pipeline_syscall:
+	mov	r1, sp				@ regs
+	mov	r0, tsk
+	bl	__pipeline_syscall
+	ldr	r10, [tsk, #TI_LOCAL_FLAGS]
+	tst	r10, #_TLF_OOB
+	bne	fast_ret_to_user
+	cmp	r0, #0
+	bgt	ret_slow_syscall
+root_syscall:
+	ldmia	sp, { r0 - r3 }
+#endif /* CONFIG_DOVETAIL */
+
 	ldr	r10, [tsk, #TI_FLAGS]		@ check for syscall tracing
 	stmdb	sp!, {r4, r5}			@ push fifth and sixth args
 
