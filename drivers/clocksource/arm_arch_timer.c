@@ -24,6 +24,7 @@
 #include <linux/of_address.h>
 #include <linux/io.h>
 #include <linux/slab.h>
+#include <linux/dovetail.h>
 #include <linux/sched/clock.h>
 #include <linux/sched_clock.h>
 #include <linux/acpi.h>
@@ -875,6 +876,9 @@ static void arch_counter_set_user_access(void)
 	else
 		cntkctl |= ARCH_TIMER_USR_VCT_ACCESS_EN;
 
+	if (dovetailing())
+		cntkctl |= ARCH_TIMER_USR_PT_ACCESS_EN;
+
 	arch_timer_set_cntkctl(cntkctl);
 }
 
@@ -1005,6 +1009,10 @@ static void __init arch_counter_register(unsigned type)
 			arch_timer_read_counter = arch_counter_get_cntpct;
 
 		clocksource_counter.archdata.vdso_direct = vdso_default;
+
+#ifdef arch_clocksource_arch_timer_init
+		arch_clocksource_arch_timer_init(&clocksource_counter);
+#endif
 	} else {
 		arch_timer_read_counter = arch_counter_get_cntvct_mem;
 	}
