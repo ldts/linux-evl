@@ -4391,6 +4391,15 @@ void print_vma_addr(char *prefix, unsigned long ip)
 void __might_fault(const char *file, int line)
 {
 	/*
+	 * When running over the oob stage (e.g. some co-kernel's own
+	 * thread), we should only make sure to run with hw IRQs
+	 * enabled before accessing the memory.
+	 */
+	if (running_oob()) {
+		WARN_ON_ONCE(hard_irqs_disabled());
+		return;
+	}
+	/*
 	 * Some code (nfs/sunrpc) uses socket ops on kernel memory while
 	 * holding the mmap_sem, this is safe because kernel memory doesn't
 	 * get paged out, therefore we'll never actually fault, and the
