@@ -44,7 +44,7 @@ static int start_irqsoff_tracer(struct trace_array *tr, int graph);
 static inline int
 preempt_trace(int pc)
 {
-	return ((trace_type & TRACER_PREEMPT_OFF) && pc);
+	return (running_inband() && (trace_type & TRACER_PREEMPT_OFF) && pc);
 }
 #else
 # define preempt_trace(pc) (0)
@@ -55,7 +55,7 @@ static inline int
 irq_trace(void)
 {
 	return ((trace_type & TRACER_IRQS_OFF) &&
-		irqs_disabled());
+		running_inband() && irqs_disabled());
 }
 #else
 # define irq_trace() (0)
@@ -428,7 +428,7 @@ stop_critical_timing(unsigned long ip, unsigned long parent_ip, int pc)
 
 	atomic_inc(&data->disabled);
 
-	local_save_flags(flags);
+	stage_save_flags(flags);
 	__trace_function(tr, ip, parent_ip, flags, pc);
 	check_critical_timing(tr, data, parent_ip ? : ip, cpu);
 	data->critical_start = 0;

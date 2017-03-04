@@ -10,6 +10,7 @@
 #include <linux/module.h>
 #include <linux/ftrace.h>
 #include <linux/kprobes.h>
+#include <linux/irq_pipeline.h>
 #include "trace.h"
 
 #define CREATE_TRACE_POINTS
@@ -74,6 +75,23 @@ __visible void trace_hardirqs_off_caller(unsigned long caller_addr)
 }
 EXPORT_SYMBOL(trace_hardirqs_off_caller);
 NOKPROBE_SYMBOL(trace_hardirqs_off_caller);
+
+void trace_hardirqs_on_pipelined(void)
+{
+	/*
+	 * If the IRQ was not delivered to the kernel, keep the
+	 * tracing logic unaware of the receipt, so that no false
+	 * positive is triggered in lockdep (e.g. IN-HARDIRQ-W ->
+	 * HARDIRQ-ON-W).
+	 */
+	if (irqs_pipelined() && (!running_inband() || irqs_disabled())) {
+		WARN_ON(irq_pipeline_debug() && !hard_irqs_disabled());
+		return;
+	}
+
+	trace_hardirqs_on();
+}
+
 #endif /* CONFIG_TRACE_IRQFLAGS */
 
 #ifdef CONFIG_TRACE_PREEMPT_TOGGLE

@@ -2313,12 +2313,14 @@ tracing_generic_entry_update(struct trace_entry *entry, unsigned long flags,
 	entry->flags =
 #ifdef CONFIG_TRACE_IRQFLAGS_SUPPORT
 		(irqs_disabled_flags(flags) ? TRACE_FLAG_IRQS_OFF : 0) |
-#else
+		(hard_irqs_disabled() ? TRACE_FLAG_IRQS_HARDOFF : 0) |
+#elif !defined(CONFIG_IRQ_PIPELINE)
 		TRACE_FLAG_IRQS_NOSUPPORT |
 #endif
 		((pc & NMI_MASK    ) ? TRACE_FLAG_NMI     : 0) |
 		((pc & HARDIRQ_MASK) ? TRACE_FLAG_HARDIRQ : 0) |
 		((pc & SOFTIRQ_OFFSET) ? TRACE_FLAG_SOFTIRQ : 0) |
+		(running_oob() ? TRACE_FLAG_OOB_STAGE : 0) |
 		(tif_need_resched() ? TRACE_FLAG_NEED_RESCHED : 0) |
 		(test_preempt_need_resched() ? TRACE_FLAG_PREEMPT_RESCHED : 0);
 }
