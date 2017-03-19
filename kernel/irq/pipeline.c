@@ -9,6 +9,7 @@
 #include <linux/irq.h>
 #include <linux/irqdomain.h>
 #include <linux/irq_pipeline.h>
+#include <linux/irq_work.h>
 #include <trace/events/irq.h>
 #include "internals.h"
 
@@ -1332,6 +1333,39 @@ bool irq_cpuidle_enter(struct cpuidle_device *dev,
 	return !stage_irqs_pending(p) && irq_cpuidle_control(dev, state);
 }
 
+static unsigned int inband_work_sirq;
+
+static irqreturn_t inband_work_interrupt(int sirq, void *dev_id)
+{
+	irq_work_run();
+
+	return IRQ_HANDLED;
+}
+
+static struct irqaction inband_work = {
+	.handler = inband_work_interrupt,
+	.name = "in-band work",
+	.flags = IRQF_NO_THREAD,
+};
+
+void irq_local_work_raise(void)
+{
+	unsigned long flags;
+
+	/*
+	 * irq_work_queue() may be called from the in-band stage too
+	 * in case we want to delay a work until the hard irqs are on
+	 * again, so we may only sync the in-band log when unstalled,
+	 * with hard irqs on.
+	 */
+	flags = hard_local_irq_save();
+	irq_post_inband(inband_work_sirq);
+	if (running_inband() &&
+	    !hard_irqs_disabled_flags(flags) && !irqs_disabled())
+		sync_current_stage();
+	hard_local_irq_restore(flags);
+}
+
 #ifdef CONFIG_DEBUG_IRQ_PIPELINE
 
 notrace void check_inband_stage(void)
@@ -1435,6 +1469,9 @@ void __init irq_pipeline_init(void)
 	synthetic_irq_domain = irq_domain_add_nomap(NULL, ~0,
 						    &sirq_domain_ops,
 						    NULL);
+	inband_work_sirq = irq_create_direct_mapping(synthetic_irq_domain);
+	setup_percpu_irq(inband_work_sirq, &inband_work);
+
 	/*
 	 * We are running on the boot CPU, hw interrupts are off, and
 	 * secondary CPUs are still lost in space. Now we may run
