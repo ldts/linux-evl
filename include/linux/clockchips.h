@@ -15,6 +15,7 @@
 # include <linux/cpumask.h>
 # include <linux/ktime.h>
 # include <linux/notifier.h>
+# include <linux/irq_pipeline.h>
 
 struct clock_event_device;
 struct module;
@@ -67,6 +68,17 @@ enum clock_event_state {
  */
 # define CLOCK_EVT_FEAT_HRTIMER		0x000080
 
+/*
+ * Clockevent device can work with pipelined timer events.
+ */
+# define CLOCK_EVT_FEAT_PIPELINE	0x000100
+
+/*
+ * Clockevent device can deliver high-precision events via out-of-band
+ * interrupts.
+ */
+# define CLOCK_EVT_FEAT_OOB		0x000200
+
 /**
  * struct clock_event_device - clock event device descriptor
  * @event_handler:	Assigned by the framework to be called by the low
@@ -91,7 +103,7 @@ enum clock_event_state {
  * @max_delta_ticks:	maximum delta value in ticks stored for reconfiguration
  * @name:		ptr to clock event name
  * @rating:		variable to rate clock event devices
- * @irq:		IRQ number (only for non CPU local devices)
+ * @irq:		IRQ number (only for non CPU local devices, or pipelined timers)
  * @bound_on:		Bound on CPU
  * @cpumask:		cpumask to indicate for which CPUs this device works
  * @list:		list head for the management code
@@ -157,6 +169,11 @@ static inline bool clockevent_state_oneshot_stopped(struct clock_event_device *d
 	return dev->state_use_accessors == CLOCK_EVT_STATE_ONESHOT_STOPPED;
 }
 
+static inline bool clockevent_is_oob(struct clock_event_device *dev)
+{
+	return !!(dev->features & CLOCK_EVT_FEAT_OOB);
+}
+
 /*
  * Calculate a multiplication factor for scaled math, which is used to convert
  * nanoseconds based values to clock ticks:
@@ -186,6 +203,8 @@ extern int clockevents_unbind_device(struct clock_event_device *ced, int cpu);
 extern void clockevents_config_and_register(struct clock_event_device *dev,
 					    u32 freq, unsigned long min_delta,
 					    unsigned long max_delta);
+extern void clockevents_switch_state(struct clock_event_device *dev,
+				     enum clock_event_state state);
 
 extern int clockevents_update_freq(struct clock_event_device *ce, u32 freq);
 
@@ -214,6 +233,38 @@ extern int tick_check_broadcast_expired(void);
 static inline int tick_check_broadcast_expired(void) { return 0; }
 static inline void tick_setup_hrtimer_broadcast(void) { }
 # endif
+
+#ifdef CONFIG_IRQ_PIPELINE
+void tick_notify_proxy(void);
+static inline
+void clockevents_handle_event(struct clock_event_device *ced)
+{
+	/*
+	 * If called from the in-band stage, or for delivering a
+	 * high-precision timer event to the oob stage, call the event
+	 * handler immediately.
+	 *
+	 * Otherwise, ced is still the regular tick device for the
+	 * current CPU which does not handle high-precision events, so
+	 * just relay the incoming tick to the in-band stage via
+	 * tick_notify_proxy().  This situation can happen when all
+	 * CPUs receive the same out-of-band IRQ from a given clock
+	 * event device, but only a subset of the online CPUs is
+	 * actually interested in high-precision events from that
+	 * device.
+	 */
+	if (clockevent_is_oob(ced) || running_inband())
+		ced->event_handler(ced);
+	else
+		tick_notify_proxy();
+}
+#else
+static inline
+void clockevents_handle_event(struct clock_event_device *ced)
+{
+	ced->event_handler(ced);
+}
+#endif	/* !CONFIG_IRQ_PIPELINE */
 
 #else /* !CONFIG_GENERIC_CLOCKEVENTS: */
 

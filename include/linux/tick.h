@@ -20,6 +20,22 @@ extern void tick_suspend_local(void);
 extern void tick_resume_local(void);
 extern void tick_handover_do_timer(void);
 extern void tick_cleanup_dead_cpu(int cpu);
+
+#ifdef CONFIG_IRQ_PIPELINE
+struct proxy_tick_ops {
+	void (*register_device)(struct clock_event_device *proxy_ced,
+				struct clock_event_device *real_ced);
+	void (*unregister_device)(struct clock_event_device *proxy_ced,
+				  struct clock_event_device *real_ced);
+	void (*handle_event)(struct clock_event_device *real_ced);
+};
+int tick_install_proxy(struct proxy_tick_ops *ops,
+		       const struct cpumask *cpumask);
+void tick_uninstall_proxy(struct proxy_tick_ops *ops,
+			  const struct cpumask *cpumask);
+void tick_notify_proxy(void);
+#endif /* !CONFIG_IRQ_PIPELINE */
+
 #else /* CONFIG_GENERIC_CLOCKEVENTS */
 static inline void tick_init(void) { }
 static inline void tick_suspend_local(void) { }
