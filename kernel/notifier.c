@@ -190,6 +190,9 @@ NOKPROBE_SYMBOL(__atomic_notifier_call_chain);
 int atomic_notifier_call_chain(struct atomic_notifier_head *nh,
 			       unsigned long val, void *v)
 {
+	if (!running_inband())
+		return notifier_call_chain(&nh->head, val, v, -1, NULL);
+
 	return __atomic_notifier_call_chain(nh, val, v, -1, NULL);
 }
 EXPORT_SYMBOL_GPL(atomic_notifier_call_chain);
