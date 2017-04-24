@@ -732,7 +732,8 @@ void hard_preempt_enable(unsigned long flags)
 	if (running_inband()) {
 		preempt_enable_no_resched();
 		hard_local_irq_restore(flags);
-		preempt_check_resched();
+		if (!hard_irqs_disabled_flags(flags))
+			preempt_check_resched();
 	} else
 		hard_local_irq_restore(flags);
 }

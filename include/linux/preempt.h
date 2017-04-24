@@ -338,4 +338,20 @@ static inline void preempt_notifier_init(struct preempt_notifier *notifier,
 
 #endif
 
+#ifdef CONFIG_IRQ_PIPELINE
+unsigned long hard_preempt_disable(void);
+void hard_preempt_enable(unsigned long flags);
+#else
+#define hard_preempt_disable()		\
+({					\
+	preempt_disable();		\
+	0;				\
+})
+#define hard_preempt_enable(__flags)	\
+	do {				\
+		preempt_enable();	\
+		(void)(__flags);	\
+	} while (0)
+#endif
+
 #endif /* __LINUX_PREEMPT_H */
