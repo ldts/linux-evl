@@ -88,6 +88,8 @@ static struct tk_fast tk_fast_raw  ____cacheline_aligned = {
 	.base[1] = { .clock = &dummy_clock, },
 };
 
+static struct timespec64 fast_wall_to_monotonic ____cacheline_aligned;
+
 /* flag for if timekeeping is suspended */
 int __read_mostly timekeeping_suspended;
 
@@ -504,6 +506,16 @@ u64 notrace ktime_get_boot_fast_ns(void)
 }
 EXPORT_SYMBOL_GPL(ktime_get_boot_fast_ns);
 
+ktime_t ktime_get_real_fast(void)
+{
+	ktime_t mono, wtm;
+
+	mono = ns_to_ktime(ktime_get_mono_fast_ns());
+	wtm = timespec64_to_ktime(fast_wall_to_monotonic);
+
+	return ktime_sub(mono, wtm);
+}
+EXPORT_SYMBOL_GPL(ktime_get_real_fast);
 
 /*
  * See comment for __ktime_get_fast_ns() vs. timestamp ordering
@@ -563,6 +575,8 @@ static void halt_fast_timekeeper(const struct timekeeper *tk)
 	memcpy(&tkr_dummy, tkr, sizeof(tkr_dummy));
 	tkr_dummy.clock = &dummy_clock;
 	update_fast_timekeeper(&tkr_dummy, &tk_fast_raw);
+
+	fast_wall_to_monotonic = tk->wall_to_monotonic;
 }
 
 static RAW_NOTIFIER_HEAD(pvclock_gtod_chain);
@@ -668,6 +682,7 @@ static void timekeeping_update(struct timekeeper *tk, unsigned int action)
 	tk->tkr_mono.base_real = tk->tkr_mono.base + tk->offs_real;
 	update_fast_timekeeper(&tk->tkr_mono, &tk_fast_mono);
 	update_fast_timekeeper(&tk->tkr_raw,  &tk_fast_raw);
+	fast_wall_to_monotonic = tk->wall_to_monotonic;
 
 	if (action & TK_CLOCK_WAS_SET)
 		tk->clock_was_set_seq++;
