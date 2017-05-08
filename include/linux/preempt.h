@@ -195,7 +195,8 @@ do { \
 
 #define preempt_enable_no_resched() sched_preempt_enable_no_resched()
 
-#define preemptible()	(preempt_count() == 0 && !irqs_disabled())
+#define preemptible()	(preempt_count() == 0 && \
+			 !hard_irqs_disabled() && !irqs_disabled())
 
 #ifdef CONFIG_PREEMPT
 #define preempt_enable() \
