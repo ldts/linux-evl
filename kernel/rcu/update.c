@@ -95,6 +95,9 @@ int rcu_read_lock_sched_held(void)
 {
 	int lockdep_opinion = 0;
 
+	if (irqs_pipelined() &&
+	    (hard_irqs_disabled() || !running_inband()))
+		return 1;
 	if (!debug_lockdep_rcu_enabled())
 		return 1;
 	if (!rcu_is_watching())
