@@ -52,6 +52,8 @@ static inline void oob_trap_notify(unsigned int trapnr,
 void inband_event_notify(enum inband_event_type,
 			 void *data);
 
+void inband_clock_was_set(void);
+
 static inline void inband_signal_notify(struct task_struct *p)
 {
 	if (test_ti_local_flags(task_thread_info(p), _TLF_DOVETAIL))
@@ -219,6 +221,8 @@ static inline int inband_switch_tail(void)
 
 #define unprotect_inband_mm(__flags)	\
 	do { (void)(__flags); } while (0)
+
+static inline void inband_clock_was_set(void) { }
 
 #endif	/* !CONFIG_DOVETAIL */
 

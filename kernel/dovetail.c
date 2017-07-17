@@ -319,6 +319,10 @@ int inband_switch_tail(void)
 	return !inband;
 }
 
+void __weak inband_clock_was_set(void)
+{
+}
+
 int dovetail_start(void)
 {
 	check_inband_stage();
