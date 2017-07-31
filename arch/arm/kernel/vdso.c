@@ -219,6 +219,9 @@ void update_vsyscall(struct timekeeper *tk)
 {
 	struct timespec64 *wtm = &tk->wall_to_monotonic;
 	const struct arch_clocksource_data *cd = tk_get_cd(tk);
+	unsigned long flags;
+
+	flags = hard_cond_local_irq_save();
 
 	vdso_write_begin(vdso_data);
 
@@ -257,6 +260,8 @@ void update_vsyscall(struct timekeeper *tk)
 	}
 
 	vdso_write_end(vdso_data);
+
+	hard_cond_local_irq_restore(flags);
 
 	flush_dcache_page(virt_to_page(vdso_data));
 }
