@@ -83,7 +83,7 @@ enum ipi_msg_type {
 	IPI_CPU_CRASH_STOP,
 	IPI_TIMER,
 	IPI_IRQ_WORK,
-	IPI_WAKEUP
+	IPI_WAKEUP,
 };
 
 #ifdef CONFIG_HOTPLUG_CPU
@@ -267,6 +267,7 @@ asmlinkage notrace void secondary_start_kernel(void)
 	complete(&cpu_running);
 
 	local_daif_restore(DAIF_PROCCTX);
+	local_irq_enable_full();
 
 	/*
 	 * OK, it's off to the idle thread for us
@@ -789,10 +790,66 @@ static const char *ipi_types[NR_IPI] __tracepoint_string = {
 	S(IPI_WAKEUP, "CPU wake-up interrupts"),
 };
 
-static void smp_cross_call(const struct cpumask *target, unsigned int ipinr)
+#ifdef CONFIG_IRQ_PIPELINE
+
+static DEFINE_PER_CPU(unsigned long, ipi_messages);
+
+static inline
+void send_IPI_message(const struct cpumask *target, unsigned int ipinr)
 {
-	trace_ipi_raise(target, ipi_types[ipinr]);
+	unsigned int cpu, sgi;
+
+	if (ipinr < NR_IPI) {
+		/* regular in-band IPI (multiplexed over SGI0). */
+		trace_ipi_raise_rcuidle(target, ipi_types[ipinr]);
+		for_each_cpu(cpu, target)
+			set_bit(ipinr, &per_cpu(ipi_messages, cpu));
+		smp_mb();
+		sgi = 0;
+	} else	/* out-of-band IPI (SGI1-3). */
+		sgi = ipinr - NR_IPI + 1;
+
+	__smp_cross_call(target, sgi);
+}
+
+static inline
+void handle_IPI_pipelined(int sgi, struct pt_regs *regs)
+{
+	unsigned int ipinr, irq;
+	unsigned long *pmsg;
+
+	if (sgi) {		/* SGI1-3 */
+		irq = sgi + NR_IPI - 1 + OOB_IPI_BASE;
+		generic_pipeline_irq(irq, regs);
+		return;
+	}
+
+	/* In-band IPI (0..NR_IPI - 1) multiplexed over SGI0. */
+	pmsg = raw_cpu_ptr(&ipi_messages);
+	while (*pmsg) {
+		ipinr = ffs(*pmsg) - 1;
+		clear_bit(ipinr, pmsg);
+		irq = OOB_IPI_BASE + ipinr;
+		generic_pipeline_irq(irq, regs);
+	}
+}
+
+#else
+
+static inline
+void send_IPI_message(const struct cpumask *target, unsigned int ipinr)
+{
 	__smp_cross_call(target, ipinr);
+}
+
+static inline void handle_IPI_pipelined(int ipinr, struct pt_regs *regs)
+{ }
+
+#endif /* CONFIG_IRQ_PIPELINE */
+
+void smp_cross_call(const struct cpumask *target, unsigned int ipinr)
+{
+	send_IPI_message(target, ipinr);
 }
 
 void show_ipi_list(struct seq_file *p, int prec)
@@ -886,7 +943,7 @@ static void ipi_cpu_crash_stop(unsigned int cpu, struct pt_regs *regs)
 /*
  * Main handler for inter-processor interrupts
  */
-void handle_IPI(int ipinr, struct pt_regs *regs)
+void __handle_IPI(int ipinr, struct pt_regs *regs)
 {
 	unsigned int cpu = smp_processor_id();
 	struct pt_regs *old_regs = set_irq_regs(regs);
@@ -946,6 +1003,18 @@ void handle_IPI(int ipinr, struct pt_regs *regs)
 		break;
 #endif
 
+#ifdef CONFIG_IRQ_PIPELINE
+	/*
+	 * In the unlikely event out-of-band IPIs have a in-band stage
+	 * handler.
+	 */
+	case NR_IPI ... NR_IPI + OOB_NR_IPI - 1:
+		irq_enter();
+		generic_handle_irq(OOB_IPI_BASE + ipinr);
+		irq_exit();
+		break;
+#endif
+
 	default:
 		pr_crit("CPU%u: Unknown IPI message 0x%x\n", cpu, ipinr);
 		break;
@@ -954,6 +1023,14 @@ void handle_IPI(int ipinr, struct pt_regs *regs)
 	if ((unsigned)ipinr < NR_IPI)
 		trace_ipi_exit_rcuidle(ipi_types[ipinr]);
 	set_irq_regs(old_regs);
+}
+
+void handle_IPI(int ipinr, struct pt_regs *regs)
+{
+	if (irqs_pipelined())
+		handle_IPI_pipelined(ipinr, regs);
+	else
+		__handle_IPI(ipinr, regs);
 }
 
 void smp_send_reschedule(int cpu)

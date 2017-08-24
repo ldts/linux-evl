@@ -20,6 +20,12 @@
 
 #include <asm/cpufeature.h>
 
+/*
+ * IRQ_PIPELINE: DAIF masking is only used in contexts where hard
+ * interrupt masking applies, so no need to virtualize for the root
+ * stage here (the pipeline core does assume this).
+ */
+
 #define DAIF_PROCCTX		0
 #define DAIF_PROCCTX_NOIRQ	PSR_I_BIT
 #define DAIF_ERRCTX		(PSR_I_BIT | PSR_A_BIT)
@@ -60,7 +66,7 @@ static inline void local_daif_restore(unsigned long flags)
 		trace_hardirqs_on();
 
 		if (system_uses_irq_prio_masking())
-			arch_local_irq_enable();
+			native_irq_enable();
 	} else if (!(flags & PSR_A_BIT)) {
 		/*
 		 * If interrupts are disabled but we can take
@@ -87,7 +93,7 @@ static inline void local_daif_restore(unsigned long flags)
 			 *
 			 * So we don't need additional synchronization here.
 			 */
-			arch_local_irq_disable();
+			native_irq_disable();
 		}
 	}
 

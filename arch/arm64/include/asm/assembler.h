@@ -74,6 +74,12 @@
 	msr	daif, \flags
 	.endm
 
+	.macro	enable_irq_if_pipelined
+#ifdef CONFIG_IRQ_PIPELINE
+	msr	daifclr, #2
+#endif
+	.endm
+
 	.macro	enable_dbg
 	msr	daifclr, #8
 	.endm

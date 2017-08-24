@@ -61,9 +61,14 @@ struct seq_file;
 extern void show_ipi_list(struct seq_file *p, int prec);
 
 /*
- * Called from C code, this handles an IPI.
+ * Called from C code, this handles an IPI (including pipelined ones).
  */
 extern void handle_IPI(int ipinr, struct pt_regs *regs);
+
+/*
+ * Handles IPIs for the in-band stage exclusively.
+ */
+void __handle_IPI(int ipinr, struct pt_regs *regs);
 
 /*
  * Discover the set of possible CPUs and determine their
@@ -77,6 +82,8 @@ extern void smp_init_cpus(void);
 extern void set_smp_cross_call(void (*)(const struct cpumask *, unsigned int));
 
 extern void (*__smp_cross_call)(const struct cpumask *, unsigned int);
+
+void smp_cross_call(const struct cpumask *target, unsigned int ipinr);
 
 /*
  * Called from the secondary holding pen, this is the secondary CPU entry point.

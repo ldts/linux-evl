@@ -132,5 +132,10 @@ void arch_release_task_struct(struct task_struct *tsk);
 	.addr_limit	= KERNEL_DS,					\
 }
 
+/*
+ * Local (synchronous) thread flags.
+ */
+#define _TLF_OOB		0x0001
+
 #endif /* __KERNEL__ */
 #endif /* __ASM_THREAD_INFO_H */
