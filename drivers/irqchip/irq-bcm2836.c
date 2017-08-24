@@ -57,6 +57,7 @@ static struct irq_chip bcm2836_arm_irqchip_timer = {
 	.name		= "bcm2836-timer",
 	.irq_mask	= bcm2836_arm_irqchip_mask_timer_irq,
 	.irq_unmask	= bcm2836_arm_irqchip_unmask_timer_irq,
+	.flags		= IRQCHIP_PIPELINE_SAFE,
 };
 
 static void bcm2836_arm_irqchip_mask_pmu_irq(struct irq_data *d)
@@ -73,6 +74,7 @@ static struct irq_chip bcm2836_arm_irqchip_pmu = {
 	.name		= "bcm2836-pmu",
 	.irq_mask	= bcm2836_arm_irqchip_mask_pmu_irq,
 	.irq_unmask	= bcm2836_arm_irqchip_unmask_pmu_irq,
+	.flags		= IRQCHIP_PIPELINE_SAFE,
 };
 
 static void bcm2836_arm_irqchip_mask_gpu_irq(struct irq_data *d)
@@ -87,6 +89,7 @@ static struct irq_chip bcm2836_arm_irqchip_gpu = {
 	.name		= "bcm2836-gpu",
 	.irq_mask	= bcm2836_arm_irqchip_mask_gpu_irq,
 	.irq_unmask	= bcm2836_arm_irqchip_unmask_gpu_irq,
+	.flags		= IRQCHIP_PIPELINE_SAFE,
 };
 
 static int bcm2836_map(struct irq_domain *d, unsigned int irq,
