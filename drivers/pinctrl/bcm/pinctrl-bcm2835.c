@@ -79,7 +79,7 @@ struct bcm2835_pinctrl {
 	struct gpio_chip gpio_chip;
 	struct pinctrl_gpio_range gpio_range;
 
-	raw_spinlock_t irq_lock[BCM2835_NUM_BANKS];
+	hard_spinlock_t irq_lock[BCM2835_NUM_BANKS];
 };
 
 /* pins are just named GPIO0..GPIO53 */
@@ -608,6 +608,7 @@ static struct irq_chip bcm2835_gpio_irq_chip = {
 	.irq_ack = bcm2835_gpio_irq_ack,
 	.irq_mask = bcm2835_gpio_irq_disable,
 	.irq_unmask = bcm2835_gpio_irq_enable,
+	.flags = IRQCHIP_PIPELINE_SAFE,
 };
 
 static int bcm2835_pctl_get_groups_count(struct pinctrl_dev *pctldev)
