@@ -2206,6 +2206,40 @@ static void pl011_console_putchar(struct uart_port *port, int ch)
 	pl011_write(ch, uap, REG_DR);
 }
 
+#ifdef CONFIG_RAW_PRINTK
+
+/*
+ * The uart clk stays on all along in the current implementation,
+ * despite what pl011_console_write() suggests, so for the time being,
+ * just emit the characters assuming the chip is clocked. If the clock
+ * ends up being turned off after writing, we may need to clk_enable()
+ * it at console setup, relying on the non-zero enable_count for
+ * keeping pl011_console_write() from disabling it.
+ */
+static void
+pl011_console_write_raw(struct console *co, const char *s, unsigned int count)
+{
+	struct uart_amba_port *uap = amba_ports[co->index];
+	unsigned int old_cr, new_cr, status;
+
+	old_cr = readw(uap->port.membase + UART011_CR);
+	new_cr = old_cr & ~UART011_CR_CTSEN;
+	new_cr |= UART01x_CR_UARTEN | UART011_CR_TXE;
+	writew(new_cr, uap->port.membase + UART011_CR);
+
+	while (count-- > 0) {
+		if (*s == '\n')
+			pl011_console_putchar(&uap->port, '\r');
+		pl011_console_putchar(&uap->port, *s++);
+	}
+	do
+		status = readw(uap->port.membase + UART01x_FR);
+	while (status & UART01x_FR_BUSY);
+	writew(old_cr, uap->port.membase + UART011_CR);
+}
+
+#endif  /* !CONFIG_RAW_PRINTK */
+
 static void
 pl011_console_write(struct console *co, const char *s, unsigned int count)
 {
@@ -2406,6 +2440,9 @@ static struct console amba_console = {
 	.device		= uart_console_device,
 	.setup		= pl011_console_setup,
 	.match		= pl011_console_match,
+#ifdef CONFIG_RAW_PRINTK
+	.write_raw	= pl011_console_write_raw,
+#endif
 	.flags		= CON_PRINTBUFFER | CON_ANYTIME,
 	.index		= -1,
 	.data		= &amba_reg,
