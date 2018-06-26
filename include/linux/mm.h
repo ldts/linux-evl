@@ -2798,5 +2798,16 @@ void __init setup_nr_node_ids(void);
 static inline void setup_nr_node_ids(void) {}
 #endif
 
+#ifdef CONFIG_DOVETAIL
+int commit_vma(struct mm_struct *mm, struct vm_area_struct *vma);
+int force_commit_memory(void);
+#else
+static inline
+int commit_vma(struct mm_struct *mm, struct vm_area_struct *vma)
+{
+	return 0;
+}
+#endif
+
 #endif /* __KERNEL__ */
 #endif /* _LINUX_MM_H */
