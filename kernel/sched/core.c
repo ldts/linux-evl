@@ -1146,6 +1146,7 @@ static int __set_cpus_allowed_ptr(struct task_struct *p,
 		goto out;
 
 	dest_cpu = cpumask_any_and(cpu_valid_mask, new_mask);
+	inband_migration_notify(p, dest_cpu);
 	if (task_running(rq, p) || p->state == TASK_WAKING) {
 		struct migration_arg arg = { p, dest_cpu };
 		/* Need help from migration thread: drop lock and wait. */
