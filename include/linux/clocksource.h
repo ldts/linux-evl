@@ -13,8 +13,10 @@
 #include <linux/timex.h>
 #include <linux/time.h>
 #include <linux/list.h>
+#include <linux/hashtable.h>
 #include <linux/cache.h>
 #include <linux/timer.h>
+#include <linux/cdev.h>
 #include <linux/init.h>
 #include <linux/of.h>
 #include <asm/div64.h>
@@ -108,6 +110,36 @@ struct clocksource {
 	u64 wd_last;
 #endif
 	struct module *owner;
+};
+
+struct clocksource_mmio {
+	void __iomem *reg;
+	struct clocksource clksrc;
+};
+
+struct clocksource_user_mmio {
+	struct clocksource_mmio mmio;
+	void __iomem *reg_upper;
+	unsigned int bits_lower;
+	unsigned int mask_lower;
+	unsigned int mask_upper;
+	enum clksrc_user_mmio_type type;
+	unsigned long phys_lower;
+	unsigned long phys_upper;
+	unsigned int id;
+	struct device *dev;
+	struct cdev cdev;
+	DECLARE_HASHTABLE(mappings, 10);
+	struct spinlock lock;
+	struct list_head link;
+};
+
+struct clocksource_mmio_regs {
+	void __iomem *reg_upper;
+	void __iomem *reg_lower;
+	unsigned int bits_upper;
+	unsigned int bits_lower;
+	unsigned long (*revmap)(void *);
 };
 
 /*
@@ -260,23 +292,14 @@ extern u64 clocksource_dual_mmio_readl_up(struct clocksource *);
 extern int clocksource_mmio_init(void __iomem *, const char *,
 	unsigned long, int, unsigned, u64 (*)(struct clocksource *));
 
-extern int clocksource_user_dual_mmio_init(
-	void __iomem *reg_lower, unsigned bits_lower,
-	void __iomem *reg_upper, unsigned bits_upper,
-	const char *name, unsigned long hz, int rating,
-	u64 (*read)(struct clocksource *),
-	unsigned long (*revmap)(void *));
+extern int clocksource_user_mmio_init(struct clocksource_user_mmio *ucs,
+				      const struct clocksource_mmio_regs *regs,
+				      unsigned long hz);
 
-static inline int clocksource_user_mmio_init(
-	void __iomem *reg, const char *name,
-	unsigned long hz, int rating, unsigned bits,
-	u64 (*read)(struct clocksource *),
-	unsigned long (*revmap)(void *))
-{
-	return clocksource_user_dual_mmio_init(
-		reg, bits, NULL, 0,
-		name, hz, rating, read, revmap);
-}
+extern int clocksource_user_single_mmio_init(
+	void __iomem *base, const char *name,
+	unsigned long hz, int rating, unsigned int bits,
+	u64 (*read)(struct clocksource *));
 
 extern int clocksource_i8253_init(void);
 

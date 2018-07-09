@@ -18,36 +18,10 @@
 #include <linux/mm.h>
 #include <linux/mman.h>
 #include <linux/device.h>
-#include <linux/cdev.h>
-#include <linux/hashtable.h>
 
-struct clocksource_mmio {
-	void __iomem *reg;
-	struct clocksource clksrc;
-};
-
-struct clocksource_user_mmio {
-	unsigned int mask_lower;
-	unsigned int bits_lower;
-	void __iomem *reg_upper;
-	unsigned int mask_upper;
-	struct clocksource_mmio mmio;
-	struct list_head link;
-	unsigned int id;
-	enum clksrc_user_mmio_type type;
-	unsigned long phys_lower;
-	unsigned long phys_upper;
-
-	struct device *dev;
-	struct cdev char_dev;
-
-	DECLARE_HASHTABLE(mappings, 10);
-	struct spinlock lock;
-};
-
-struct user_mmio_clksrc_mapping {
+struct clocksource_user_mapping {
 	struct mm_struct *mm;
-	struct clocksource_user_mmio *cs;
+	struct clocksource_user_mmio *ucs;
 	void *regs;
 	struct hlist_node link;
 	atomic_t refs;
@@ -93,45 +67,43 @@ to_user_mmio_clksrc(struct clocksource *c)
 
 u64 clocksource_dual_mmio_readl_up(struct clocksource *c)
 {
-	struct clocksource_user_mmio *cs = to_user_mmio_clksrc(c);
+	struct clocksource_user_mmio *ucs = to_user_mmio_clksrc(c);
 	u32 upper, old_upper, lower;
 
-	upper = readl_relaxed(cs->reg_upper);
+	upper = readl_relaxed(ucs->reg_upper);
 	do {
 		old_upper = upper;
-		lower = readl_relaxed(cs->mmio.reg);
-		upper = readl_relaxed(cs->reg_upper);
+		lower = readl_relaxed(ucs->mmio.reg);
+		upper = readl_relaxed(ucs->reg_upper);
 	} while (upper != old_upper);
 
-	return (((u64)upper) << cs->bits_lower) | lower;
+	return (((u64)upper) << ucs->bits_lower) | lower;
 }
 
 u64 clocksource_dual_mmio_readw_up(struct clocksource *c)
 {
-	struct clocksource_user_mmio *cs = to_user_mmio_clksrc(c);
+	struct clocksource_user_mmio *ucs = to_user_mmio_clksrc(c);
 	u16 upper, old_upper, lower;
 
-	upper = readw_relaxed(cs->reg_upper);
+	upper = readw_relaxed(ucs->reg_upper);
 	do {
 		old_upper = upper;
-		lower = readw_relaxed(cs->mmio.reg);
-		upper = readw_relaxed(cs->reg_upper);
+		lower = readw_relaxed(ucs->mmio.reg);
+		upper = readw_relaxed(ucs->reg_upper);
 	} while (upper != old_upper);
 
-	return (((u64)upper) << cs->bits_lower) | lower;
+	return (((u64)upper) << ucs->bits_lower) | lower;
 }
 
-static void _clocksource_mmio_init(void __iomem *base, const char *name,
-	unsigned long hz, int rating, unsigned int bits,
-	u64 (*read)(struct clocksource *),
-	struct clocksource_mmio *cs)
+static void mmio_base_init(const char *name,int rating, unsigned int bits,
+			   u64 (*read)(struct clocksource *),
+			   struct clocksource *cs)
 {
-	cs->reg = base;
-	cs->clksrc.name = name;
-	cs->clksrc.rating = rating;
-	cs->clksrc.read = read;
-	cs->clksrc.mask = CLOCKSOURCE_MASK(bits);
-	cs->clksrc.flags = CLOCK_SOURCE_IS_CONTINUOUS;
+	cs->name = name;
+	cs->rating = rating;
+	cs->read = read;
+	cs->mask = CLOCKSOURCE_MASK(bits);
+	cs->flags = CLOCK_SOURCE_IS_CONTINUOUS;
 }
 
 /**
@@ -157,7 +129,8 @@ int __init clocksource_mmio_init(void __iomem *base, const char *name,
 	if (!cs)
 		return -ENOMEM;
 
-	_clocksource_mmio_init(base, name, hz, rating, bits, read, cs);
+	cs->reg = base;
+	mmio_base_init(name, rating, bits, read, &cs->clksrc);
 
 	err = clocksource_register_hz(&cs->clksrc, hz);
 	if (err < 0) {
@@ -170,7 +143,7 @@ int __init clocksource_mmio_init(void __iomem *base, const char *name,
 
 static void clksrc_vmopen(struct vm_area_struct *vma)
 {
-	struct user_mmio_clksrc_mapping *mapping;
+	struct clocksource_user_mapping *mapping;
 
 	mapping = vma->vm_private_data;
 
@@ -179,14 +152,14 @@ static void clksrc_vmopen(struct vm_area_struct *vma)
 
 static void clksrc_vmclose(struct vm_area_struct *vma)
 {
-	struct user_mmio_clksrc_mapping *mapping;
+	struct clocksource_user_mapping *mapping;
 
 	mapping = vma->vm_private_data;
 
 	if (atomic_dec_and_test(&mapping->refs)) {
-		spin_lock(&mapping->cs->lock);
+		spin_lock(&mapping->ucs->lock);
 		hash_del(&mapping->link);
-		spin_unlock(&mapping->cs->lock);
+		spin_unlock(&mapping->ucs->lock);
 		kfree(mapping);
 	}
 }
@@ -199,8 +172,8 @@ static const struct vm_operations_struct clksrc_vmops = {
 static int user_mmio_clksrc_mmap(struct file *file, struct vm_area_struct *vma)
 {
 	unsigned long addr, upper_pfn, lower_pfn;
-	struct user_mmio_clksrc_mapping *mapping, *tmp;
-	struct clocksource_user_mmio *cs;
+	struct clocksource_user_mapping *mapping, *tmp;
+	struct clocksource_user_mmio *ucs;
 	unsigned int bits_upper;
 	unsigned long h_key;
 	pgprot_t prot;
@@ -213,11 +186,11 @@ static int user_mmio_clksrc_mmap(struct file *file, struct vm_area_struct *vma)
 
 	vma->vm_private_data = NULL;
 	vma->vm_ops = &clksrc_vmops;
-	cs = file->private_data;
+	ucs = file->private_data;
 
-	upper_pfn = cs->phys_upper >> PAGE_SHIFT;
-	lower_pfn = cs->phys_lower >> PAGE_SHIFT;
-	bits_upper = fls(cs->mmio.clksrc.mask) - cs->bits_lower;
+	upper_pfn = ucs->phys_upper >> PAGE_SHIFT;
+	lower_pfn = ucs->phys_lower >> PAGE_SHIFT;
+	bits_upper = fls(ucs->mmio.clksrc.mask) - ucs->bits_lower;
 	if (pages == 2 && (!bits_upper || upper_pfn == lower_pfn))
 		return -EINVAL;
 
@@ -242,21 +215,21 @@ static int user_mmio_clksrc_mmap(struct file *file, struct vm_area_struct *vma)
 		return -ENOSPC;
 
 	mapping->mm = vma->vm_mm;
-	mapping->cs = cs;
+	mapping->ucs = ucs;
 	mapping->regs = (void *)vma->vm_start;
 
-	spin_lock(&cs->lock);
-	hash_for_each_possible(cs->mappings, tmp, link, h_key) {
+	spin_lock(&ucs->lock);
+	hash_for_each_possible(ucs->mappings, tmp, link, h_key) {
 		if (tmp->mm != vma->vm_mm)
 			continue;
-		spin_unlock(&cs->lock);
+		spin_unlock(&ucs->lock);
 
 		kfree(mapping);
 
 		return -EBUSY;
 	}
-	hash_add(cs->mappings, &mapping->link, h_key);
-	spin_unlock(&cs->lock);
+	hash_add(ucs->mappings, &mapping->link, h_key);
+	spin_unlock(&ucs->lock);
 
 	atomic_set(&mapping->refs, 1);
 	vma->vm_private_data = mapping;
@@ -267,10 +240,10 @@ static int user_mmio_clksrc_mmap(struct file *file, struct vm_area_struct *vma)
 static long
 user_mmio_clksrc_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
-	struct user_mmio_clksrc_mapping *mapping;
+	struct clocksource_user_mapping *mapping;
 	struct clksrc_user_mmio_info __user *u;
 	struct clksrc_user_mmio_info info;
-	struct clocksource_user_mmio *cs;
+	struct clocksource_user_mmio *ucs;
 	unsigned long upper_pfn, lower_pfn;
 	unsigned int bits_upper;
 	void __user *map_base;
@@ -286,28 +259,28 @@ user_mmio_clksrc_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		return -ENOTTY;
 	}
 
-	cs = file->private_data;
+	ucs = file->private_data;
 
 	h_key = (unsigned long)current->mm / sizeof(*current->mm);
 
 	size = PAGE_SIZE;
-	upper_pfn = cs->phys_upper >> PAGE_SHIFT;
-	lower_pfn = cs->phys_lower >> PAGE_SHIFT;
-	bits_upper = fls(cs->mmio.clksrc.mask) - cs->bits_lower;
+	upper_pfn = ucs->phys_upper >> PAGE_SHIFT;
+	lower_pfn = ucs->phys_lower >> PAGE_SHIFT;
+	bits_upper = fls(ucs->mmio.clksrc.mask) - ucs->bits_lower;
 	if (bits_upper && upper_pfn != lower_pfn)
 		size += PAGE_SIZE;
 
 	do {
-		spin_lock(&cs->lock);
-		hash_for_each_possible(cs->mappings, mapping, link, h_key) {
+		spin_lock(&ucs->lock);
+		hash_for_each_possible(ucs->mappings, mapping, link, h_key) {
 			if (mapping->mm != current->mm)
 				continue;
-			spin_unlock(&cs->lock);
+			spin_unlock(&ucs->lock);
 
 			map_base = mapping->regs;
 			goto found;
 		}
-		spin_unlock(&cs->lock);
+		spin_unlock(&ucs->lock);
 
 		map_base =
 			(void *)vm_mmap(file, 0, size, PROT_READ, MAP_SHARED, 0);
@@ -317,28 +290,28 @@ user_mmio_clksrc_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		return PTR_ERR(map_base);
 
 found:
-	info.type = cs->type;
-	info.reg_lower = map_base + offset_in_page(cs->phys_lower);
-	info.mask_lower = cs->mmio.clksrc.mask;
-	info.bits_lower = cs->bits_lower;
+	info.type = ucs->type;
+	info.reg_lower = map_base + offset_in_page(ucs->phys_lower);
+	info.mask_lower = ucs->mmio.clksrc.mask;
+	info.bits_lower = ucs->bits_lower;
 	info.reg_upper = NULL;
-	if (cs->phys_upper)
+	if (ucs->phys_upper)
 		info.reg_upper = map_base + (size - PAGE_SIZE)
-			+ offset_in_page(cs->phys_upper);
-	info.mask_upper = cs->mask_upper;
+			+ offset_in_page(ucs->phys_upper);
+	info.mask_upper = ucs->mask_upper;
 
 	return copy_to_user(u, &info, sizeof(*u));
 }
 
 static int user_mmio_clksrc_open(struct inode *inode, struct file *file)
 {
-	struct clocksource_user_mmio *cs;
+	struct clocksource_user_mmio *ucs;
 
 	if (file->f_mode & FMODE_WRITE)
 		return -EINVAL;
 
-	cs = container_of(inode->i_cdev, typeof(*cs), char_dev);
-	file->private_data = cs;
+	ucs = container_of(inode->i_cdev, typeof(*ucs), cdev);
+	file->private_data = ucs;
 
 	return 0;
 }
@@ -352,30 +325,30 @@ static const struct file_operations user_mmio_clksrc_fops = {
 };
 
 static int __init
-cs_create_char_dev(struct class *class, struct clocksource_user_mmio *cs)
+ucs_create_cdev(struct class *class, struct clocksource_user_mmio *ucs)
 {
 	int err;
 
-	cs->dev = device_create(class, NULL,
-				MKDEV(MAJOR(user_mmio_devt), cs->id),
-				cs, "user_mmio_clksrc/%d", cs->id);
-	if (IS_ERR(cs->dev))
-		return PTR_ERR(cs->dev);
+	ucs->dev = device_create(class, NULL,
+				MKDEV(MAJOR(user_mmio_devt), ucs->id),
+				ucs, "user_mmio_clksrc/%d", ucs->id);
+	if (IS_ERR(ucs->dev))
+		return PTR_ERR(ucs->dev);
 
-	spin_lock_init(&cs->lock);
-	hash_init(cs->mappings);
+	spin_lock_init(&ucs->lock);
+	hash_init(ucs->mappings);
 
-	cdev_init(&cs->char_dev, &user_mmio_clksrc_fops);
-	cs->char_dev.kobj.parent = &cs->dev->kobj;
+	cdev_init(&ucs->cdev, &user_mmio_clksrc_fops);
+	ucs->cdev.kobj.parent = &ucs->dev->kobj;
 
-	err = cdev_add(&cs->char_dev, cs->dev->devt, 1);
+	err = cdev_add(&ucs->cdev, ucs->dev->devt, 1);
 	if (err < 0)
 		goto err_device_destroy;
 
 	return 0;
 
 err_device_destroy:
-	device_destroy(class, MKDEV(MAJOR(user_mmio_devt), cs->id));
+	device_destroy(class, MKDEV(MAJOR(user_mmio_devt), ucs->id));
 	return err;
 }
 
@@ -390,16 +363,14 @@ static unsigned long default_revmap(void *virt)
 	return vm->phys_addr + (virt - vm->addr);
 }
 
-typedef u64 clksrc_read_t(struct clocksource *);
-typedef unsigned long clksrc_revmap_t(void *);
+void __weak
+arch_clocksource_user_mmio_init(struct clocksource *cs, unsigned id) { }
 
-int __init clocksource_user_dual_mmio_init(
-	void __iomem *reg_lower, unsigned int bits_lower,
-	void __iomem *reg_upper, unsigned int bits_upper,
-	const char *name, unsigned long hz, int rating,
-	clksrc_read_t *read, clksrc_revmap_t *revmap)
+int __init clocksource_user_mmio_init(struct clocksource_user_mmio *ucs,
+				      const struct clocksource_mmio_regs *regs,
+				      unsigned long hz)
 {
-	static clksrc_read_t *user_types[CLKSRC_MMIO_TYPE_NR] = {
+	static u64 (*user_types[CLKSRC_MMIO_TYPE_NR])(struct clocksource *) = {
 		[CLKSRC_MMIO_L_UP] = clocksource_mmio_readl_up,
 		[CLKSRC_MMIO_L_DOWN] = clocksource_mmio_readl_down,
 		[CLKSRC_DMMIO_L_UP] = clocksource_dual_mmio_readl_up,
@@ -407,98 +378,116 @@ int __init clocksource_user_dual_mmio_init(
 		[CLKSRC_MMIO_W_DOWN] = clocksource_mmio_readw_down,
 		[CLKSRC_DMMIO_W_UP] = clocksource_dual_mmio_readw_up,
 	};
-	unsigned long phys_upper, phys_lower;
-	struct clocksource_user_mmio *cs;
+	const char *name = ucs->mmio.clksrc.name;
+	unsigned long phys_upper = 0, phys_lower;
 	enum clksrc_user_mmio_type type;
-	struct class *class = NULL;
+	unsigned long (*revmap)(void *);
 	int err;
 
-	if (bits_lower > 32 || bits_lower < 16 || bits_upper > 32)
+	if (regs->bits_lower > 32 || regs->bits_lower < 16 ||
+	    regs->bits_upper > 32)
 		return -EINVAL;
 
 	for (type = 0; type < ARRAY_SIZE(user_types); type++)
-		if (read == user_types[type])
+		if (ucs->mmio.clksrc.read == user_types[type])
 			break;
 
 	if (type == ARRAY_SIZE(user_types))
 		return -EINVAL;
 
+	if (!(ucs->mmio.clksrc.flags & CLOCK_SOURCE_IS_CONTINUOUS))
+		return -EINVAL;
+
+	revmap = regs->revmap;
 	if (!revmap)
 		revmap = default_revmap;
 
-	phys_lower = revmap(reg_lower);
+	phys_lower = revmap(regs->reg_lower);
 	if (!phys_lower)
 		return -EINVAL;
 
-	if (bits_upper) {
-		phys_upper = revmap(reg_upper);
+	if (regs->bits_upper) {
+		phys_upper = revmap(regs->reg_upper);
 		if (!phys_upper)
 			return -EINVAL;
-	} else
-		phys_upper = 0;
-
-	cs = kzalloc(sizeof(*cs), GFP_KERNEL);
-	if (!cs)
-		return -ENOMEM;
-
-	spin_lock_init(&cs->lock);
-	cs->type = type;
-	cs->mask_lower = CLOCKSOURCE_MASK(bits_lower);
-	cs->bits_lower = bits_lower;
-	cs->reg_upper = reg_upper;
-	cs->mask_upper = CLOCKSOURCE_MASK(bits_upper);
-
-	_clocksource_mmio_init(reg_lower, name, hz, rating,
-			       bits_lower + bits_upper, read, &cs->mmio);
-
-	err = clocksource_register_hz(&cs->mmio.clksrc, hz);
-	if (err < 0) {
-		kfree(cs);
-		return err;
 	}
 
-	cs->phys_lower = phys_lower;
-	cs->phys_upper = phys_upper;
+	ucs->mmio.reg = regs->reg_lower;
+	ucs->type = type;
+	ucs->bits_lower = regs->bits_lower;
+	ucs->reg_upper = regs->reg_upper;
+	ucs->mask_lower = CLOCKSOURCE_MASK(regs->bits_lower);
+	ucs->mask_upper = CLOCKSOURCE_MASK(regs->bits_upper);
+	ucs->phys_lower = phys_lower;
+	ucs->phys_upper = phys_upper;
+	spin_lock_init(&ucs->lock);
+
+	err = clocksource_register_hz(&ucs->mmio.clksrc, hz);
+	if (err < 0)
+		return err;
 
 	spin_lock(&user_clksrcs_lock);
-	cs->id = user_clksrcs_count++;
-	if (cs->id < CLKSRC_USER_MMIO_MAX) {
-		list_add_tail(&cs->link, &user_clksrcs);
-		class = user_mmio_class;
-	}
+
+	ucs->id = user_clksrcs_count++;
+	if (ucs->id < CLKSRC_USER_MMIO_MAX)
+		list_add_tail(&ucs->link, &user_clksrcs);
+
 	spin_unlock(&user_clksrcs_lock);
 
-#ifdef arch_clocksource_user_mmio_init
-	arch_clocksource_user_mmio_init(&cs->mmio.clksrc, cs->id);
-#endif
-
-	if (cs->id >= CLKSRC_USER_MMIO_MAX)
+	if (ucs->id >= CLKSRC_USER_MMIO_MAX) {
 		pr_warn("%s: Too many clocksources\n", name);
-
-	if (class) {
-		err = cs_create_char_dev(class, cs);
-		if (err < 0)
-			pr_warn("%s: Failed to add character device\n", name);
+		err = -EAGAIN;
+		goto fail;
 	}
 
-	if (bits_lower != 32 || read != clocksource_dual_mmio_readl_up)
-		return 0;
+	arch_clocksource_user_mmio_init(&ucs->mmio.clksrc, ucs->id);
 
-	/*
-	 * Some architectures may prefer to only use the low 32 bits of the
-	 * clocksource for latency reasons.
-	 */
-	clocksource_user_mmio_init(reg_lower,
-				   kasprintf(GFP_KERNEL, "%s_low_32", name),
-				   hz, rating + 1, bits_lower,
-				   clocksource_mmio_readl_up, revmap);
+	if (user_mmio_class) {
+		err = ucs_create_cdev(user_mmio_class, ucs);
+		if (err < 0) {
+			pr_warn("%s: Failed to add character device\n", name);
+			goto fail;
+		}
+	}
 
 	return 0;
+
+fail:
+	clocksource_unregister(&ucs->mmio.clksrc);
+
+	return err;
+}
+
+int __init clocksource_user_single_mmio_init(
+	void __iomem *base, const char *name,
+	unsigned long hz, int rating, unsigned int bits,
+	u64 (*read)(struct clocksource *))
+{
+	struct clocksource_user_mmio *ucs;
+	struct clocksource_mmio_regs regs;
+	int ret;
+
+	ucs = kzalloc(sizeof(*ucs), GFP_KERNEL);
+	if (!ucs)
+		return -ENOMEM;
+
+	mmio_base_init(name, rating, bits, read, &ucs->mmio.clksrc);
+	regs.reg_lower = base;
+	regs.reg_upper = NULL;
+	regs.bits_lower = bits;
+	regs.bits_upper = 0;
+	regs.revmap = NULL;
+
+	ret = clocksource_user_mmio_init(ucs, &regs, hz);
+	if (ret)
+		kfree(ucs);
+
+	return ret;
 }
 
 static int __init mmio_clksrc_chr_dev_init(void)
 {
-	struct clocksource_user_mmio *cs;
+	struct clocksource_user_mmio *ucs;
 	struct class *class;
 	int err;
 
@@ -520,13 +509,13 @@ static int __init mmio_clksrc_chr_dev_init(void)
 	 * added to the list tail, never removed.
 	 */
 	spin_lock(&user_clksrcs_lock);
-	list_for_each_entry(cs, &user_clksrcs, link) {
+	list_for_each_entry(ucs, &user_clksrcs, link) {
 		spin_unlock(&user_clksrcs_lock);
 
-		err = cs_create_char_dev(class, cs);
+		err = ucs_create_cdev(class, ucs);
 		if (err < 0)
 			pr_err("%s: Failed to add character device\n",
-			       cs->mmio.clksrc.name);
+			       ucs->mmio.clksrc.name);
 
 		spin_lock(&user_clksrcs_lock);
 	}

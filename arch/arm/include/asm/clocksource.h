@@ -13,16 +13,4 @@ struct arch_clocksource_data {
 	enum arch_clock_uaccess_type clock_type;
 };
 
-#ifdef CONFIG_VDSO
-
-#define arch_clocksource_arch_timer_init \
-	arch_clocksource_arch_timer_init
-void arch_clocksource_arch_timer_init(struct clocksource *cs);
-
-#define arch_clocksource_user_mmio_init \
-	arch_clocksource_user_mmio_init
-void arch_clocksource_user_mmio_init(struct clocksource *cs, unsigned id);
-
-#endif /* CONFIG_VDSO */
-
 #endif
