@@ -41,7 +41,10 @@ static struct page **vdso_text_pagelist;
 
 extern char vdso_start[], vdso_end[];
 
-/* Total number of pages needed for the data and text portions of the VDSO. */
+/*
+ * Total number of pages needed for the data, private and text
+ * portions of the VDSO.
+ */
 unsigned int vdso_total_pages __ro_after_init;
 
 /*
@@ -62,8 +65,8 @@ static int vdso_mremap(const struct vm_special_mapping *sm,
 	unsigned long new_size = new_vma->vm_end - new_vma->vm_start;
 	unsigned long vdso_size;
 
-	/* without VVAR page */
-	vdso_size = (vdso_total_pages - 1) << PAGE_SHIFT;
+	/* without VVAR and VPRIV pages */
+	vdso_size = (vdso_total_pages - 2) << PAGE_SHIFT;
 
 	if (vdso_size != new_size)
 		return -EINVAL;
@@ -226,7 +229,7 @@ static int __init vdso_init(void)
 
 	vdso_text_mapping.pages = vdso_text_pagelist;
 
-	vdso_total_pages = 1; /* for the data/vvar page */
+	vdso_total_pages = 2; /* for the data/vvar and vpriv pages */
 	vdso_total_pages += text_pages;
 
 	cntvct_ok = cntvct_functional();
@@ -237,6 +240,13 @@ static int __init vdso_init(void)
 }
 arch_initcall(vdso_init);
 
+static int install_vpriv(struct mm_struct *mm, unsigned long addr)
+{
+	return mmap_region(NULL, addr, PAGE_SIZE,
+			  VM_READ | VM_WRITE | VM_MAYREAD | VM_MAYWRITE,
+			   0, NULL) != addr ? -EINVAL : 0;
+}
+
 static int install_vvar(struct mm_struct *mm, unsigned long addr)
 {
 	struct vm_area_struct *vma;
@@ -244,8 +254,10 @@ static int install_vvar(struct mm_struct *mm, unsigned long addr)
 	vma = _install_special_mapping(mm, addr, PAGE_SIZE,
 				       VM_READ | VM_MAYREAD,
 				       &vdso_data_mapping);
+	if (IS_ERR(vma))
+		return PTR_ERR(vma);
 
-	return PTR_ERR_OR_ZERO(vma);
+	return vma->vm_start != addr ? -EINVAL : 0;
 }
 
 /* assumes mmap_sem is write-locked */
@@ -259,18 +271,29 @@ void arm_install_vdso(struct mm_struct *mm, unsigned long addr)
 	if (vdso_text_pagelist == NULL)
 		return;
 
-	if (install_vvar(mm, addr))
+	if (install_vpriv(mm, addr)) {
+		pr_err("cannot map VPRIV at expected address!\n");
 		return;
+	}
 
-	/* Account for vvar page. */
+	/* Account for the private storage. */
 	addr += PAGE_SIZE;
-	len = (vdso_total_pages - 1) << PAGE_SHIFT;
+	if (install_vvar(mm, addr)) {
+		WARN(1, "cannot map VVAR at expected address!\n");
+		return;
+	}
+
+	/* Account for vvar and vpriv pages. */
+	addr += PAGE_SIZE;
+	len = (vdso_total_pages - 2) << PAGE_SHIFT;
 
 	vma = _install_special_mapping(mm, addr, len,
 		VM_READ | VM_EXEC | VM_MAYREAD | VM_MAYWRITE | VM_MAYEXEC,
 		&vdso_text_mapping);
 
-	if (!IS_ERR(vma))
+	if (IS_ERR(vma) || vma->vm_start != addr)
+		WARN(1, "cannot map VDSO at expected address!\n");
+	else
 		mm->context.vdso = addr;
 }
 
