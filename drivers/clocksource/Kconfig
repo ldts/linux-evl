@@ -56,6 +56,7 @@ config DIGICOLOR_TIMER
 
 config DW_APB_TIMER
 	bool "DW APB timer driver" if COMPILE_TEST
+	select CLKSRC_VDSO_MAPPED
 	help
 	  Enables the support for the dw_apb timer.
 
