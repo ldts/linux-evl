@@ -185,6 +185,8 @@ static void ptrace_hbptriggered(struct perf_event *bp,
 	struct arch_hw_breakpoint *bkpt = counter_arch_bp(bp);
 	const char *desc = "Hardware breakpoint trap (ptrace)";
 
+	oob_trap_notify(ARM64_TRAP_DEBUG, regs);
+
 #ifdef CONFIG_COMPAT
 	if (is_compat_task()) {
 		int si_errno = 0;

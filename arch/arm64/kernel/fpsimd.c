@@ -38,6 +38,7 @@
 #include <linux/slab.h>
 #include <linux/stddef.h>
 #include <linux/sysctl.h>
+#include <linux/dovetail.h>
 
 #include <asm/esr.h>
 #include <asm/fpsimd.h>
@@ -805,6 +806,8 @@ void fpsimd_release_task(struct task_struct *dead_task)
  */
 asmlinkage void do_sve_acc(unsigned int esr, struct pt_regs *regs)
 {
+	oob_trap_notify(ARM64_TRAP_SVE, regs);
+
 	/* Even if we chose not to use SVE, the hardware could still trap: */
 	if (unlikely(!system_supports_sve()) || WARN_ON(is_compat_task())) {
 		force_signal_inject(SIGILL, ILL_ILLOPC, regs->pc);
@@ -856,6 +859,8 @@ asmlinkage void do_fpsimd_exc(unsigned int esr, struct pt_regs *regs)
 		else if (esr & FPEXC_IXF)
 			si_code = FPE_FLTRES;
 	}
+
+	oob_trap_notify(ARM64_TRAP_FPE, regs);
 
 	send_sig_fault(SIGFPE, si_code,
 		       (void __user *)instruction_pointer(regs),

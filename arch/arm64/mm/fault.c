@@ -49,6 +49,7 @@
 #include <asm/pgtable.h>
 #include <asm/tlbflush.h>
 #include <asm/traps.h>
+#include <asm/dovetail.h>
 
 struct fault_info {
 	int	(*fn)(unsigned long addr, unsigned int esr,
@@ -71,6 +72,13 @@ static inline const struct fault_info *esr_to_debug_fault_info(unsigned int esr)
 	return debug_fault_info + DBG_ESR_EVT(esr);
 }
 
+#ifdef CONFIG_DOVETAIL
+#define fault_entry(__exception, __regs)	__fault_entry(__exception, __regs)
+#else
+/* Do not depend on trap id. definitions from asm/dovetail.h */
+#define fault_entry(__exception, __regs)	__fault_entry(-1, __regs)
+#endif
+
 #ifdef CONFIG_IRQ_PIPELINE
 /*
  * We need to synchronize the virtual interrupt state with the hard
@@ -85,10 +93,20 @@ static inline const struct fault_info *esr_to_debug_fault_info(unsigned int esr)
  */
 
 static inline
-unsigned long fault_entry(struct pt_regs *regs)
+unsigned long __fault_entry(unsigned int exception, struct pt_regs *regs)
 {
 	unsigned long flags;
 	int nosync = 1;
+
+	/*
+	 * CAUTION: The co-kernel might demote the current context to
+	 * the in-band stage as a result of handling this trap,
+	 * returning with hard irqs on. Do not propagate SEA traps to
+	 * the co-kernel in NMI mode, there is nothing it could do
+	 * about it.
+	 */
+	if (likely(exception != ARM64_TRAP_SEA || interrupts_enabled(regs)))
+		oob_trap_notify(exception, regs);
 
 	flags = hard_local_irq_save();
 
@@ -132,7 +150,7 @@ static inline void fault_exit(unsigned long combo)
 #else	/* !CONFIG_IRQ_PIPELINE */
 
 static inline
-unsigned long fault_entry(struct pt_regs *regs)
+unsigned long __fault_entry(unsigned int exception, struct pt_regs *regs)
 {
 	return 0;
 }
@@ -456,7 +474,7 @@ static void do_bad_area(unsigned long addr, unsigned int esr, struct pt_regs *re
 		const struct fault_info *inf = esr_to_fault_info(esr);
 		unsigned long irqflags;
 
-		irqflags = fault_entry(regs);
+		irqflags = fault_entry(ARM64_TRAP_ACCESS, regs);
 		set_thread_esr(addr, esr);
 		arm64_force_sig_fault(inf->sig, inf->code, (void __user *)addr,
 				      inf->name);
@@ -526,7 +544,7 @@ static int __kprobes do_page_fault(unsigned long addr, unsigned int esr,
 	unsigned long vm_flags = VM_READ | VM_WRITE, irqflags;
 	unsigned int mm_flags = FAULT_FLAG_ALLOW_RETRY | FAULT_FLAG_KILLABLE;
 
-	irqflags = fault_entry(regs);
+	irqflags = fault_entry(ARM64_TRAP_ACCESS, regs);
 
 	if (notify_page_fault(regs, esr))
 		goto out;
@@ -728,7 +746,7 @@ static int do_sea(unsigned long addr, unsigned int esr, struct pt_regs *regs)
 	unsigned long irqflags;
 	void __user *siaddr;
 
-	irqflags = fault_entry(regs);
+	irqflags = fault_entry(ARM64_TRAP_SEA, regs);
 
 	inf = esr_to_fault_info(esr);
 
@@ -825,7 +843,7 @@ asmlinkage void __exception do_mem_abort(unsigned long addr, unsigned int esr,
 	if (!inf->fn(addr, esr, regs))
 		return;
 
-	irqflags = fault_entry(regs);
+	irqflags = fault_entry(ARM64_TRAP_ABRT, regs);
 
 	if (!user_mode(regs)) {
 		pr_alert("Unhandled fault at 0x%016lx\n", addr);
@@ -878,7 +896,7 @@ asmlinkage void __exception do_sp_pc_abort(unsigned long addr,
 		local_daif_restore(DAIF_PROCCTX);
 	}
 
-	irqflags = fault_entry(regs);
+	irqflags = fault_entry(ARM64_TRAP_ABRT, regs);
 
 	arm64_notify_die("SP/PC alignment exception", regs,
 			 SIGBUS, BUS_ADRALN, (void __user *)addr, esr);
@@ -936,7 +954,7 @@ asmlinkage int __exception do_debug_exception(unsigned long addr_if_watchpoint,
 	if (user_mode(regs) && !is_ttbr0_addr(pc))
 		arm64_apply_bp_hardening();
 
-	irqflags = fault_entry(regs);
+	irqflags = fault_entry(ARM64_TRAP_DEBUG, regs);
 
 	if (!inf->fn(addr_if_watchpoint, esr, regs)) {
 		rv = 1;
