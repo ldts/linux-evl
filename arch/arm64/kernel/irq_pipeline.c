@@ -8,6 +8,9 @@
 #include <linux/irq.h>
 #include <linux/irq_pipeline.h>
 
+/* irq_nesting tracks the interrupt nesting level for a CPU. */
+DEFINE_PER_CPU(int, irq_nesting);
+
 #ifdef CONFIG_SMP
 
 static struct irq_domain *sipic_domain;

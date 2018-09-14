@@ -28,7 +28,7 @@
 #include <asm/tlbflush.h>
 
 static u32 asid_bits;
-static DEFINE_RAW_SPINLOCK(cpu_asid_lock);
+static DEFINE_HARD_SPINLOCK(cpu_asid_lock);
 
 static atomic64_t asid_generation;
 static unsigned long *asid_map;
@@ -195,6 +195,8 @@ void check_and_switch_context(struct mm_struct *mm, unsigned int cpu)
 {
 	unsigned long flags;
 	u64 asid, old_active_asid;
+
+	WARN_ON_ONCE(dovetail_debug() && !hard_irqs_disabled());
 
 	if (system_supports_cnp())
 		cpu_set_reserved_ttbr0();

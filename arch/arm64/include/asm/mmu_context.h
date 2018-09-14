@@ -249,7 +249,7 @@ static inline void __switch_mm(struct mm_struct *next)
 }
 
 static inline void
-switch_mm(struct mm_struct *prev, struct mm_struct *next,
+do_switch_mm(struct mm_struct *prev, struct mm_struct *next,
 	  struct task_struct *tsk)
 {
 	if (prev != next)
@@ -264,8 +264,26 @@ switch_mm(struct mm_struct *prev, struct mm_struct *next,
 	update_saved_ttbr0(tsk, next);
 }
 
+static inline void
+switch_mm(struct mm_struct *prev, struct mm_struct *next,
+	  struct task_struct *tsk)
+{
+	unsigned long flags;
+
+	protect_inband_mm(flags);
+	do_switch_mm(prev, next, tsk);
+	unprotect_inband_mm(flags);
+}
+
 #define deactivate_mm(tsk,mm)	do { } while (0)
-#define activate_mm(prev,next)	switch_mm(prev, next, current)
+#define activate_mm(prev,next)	do_switch_mm(prev, next, current)
+
+static inline void
+switch_oob_mm(struct mm_struct *prev, struct mm_struct *next,
+	      struct task_struct *tsk)
+{
+	do_switch_mm(prev, next, tsk);
+}
 
 void verify_cpu_asid_bits(void);
 void post_ttbr_update_workaround(void);
