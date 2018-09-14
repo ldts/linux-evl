@@ -63,12 +63,29 @@ void syscall_trace_exit(struct pt_regs *regs);
 static void el0_svc_common(struct pt_regs *regs, int scno, int sc_nr,
 			   const syscall_fn_t syscall_table[])
 {
-	unsigned long flags = current_thread_info()->flags;
+	bool stalled = irqs_pipelined() && running_inband() && irqs_disabled();
+	struct thread_info *ti = current_thread_info();
+	unsigned long flags = ti->flags;
+	int ret;
 
 	regs->orig_x0 = regs->regs[0];
 	regs->syscallno = scno;
 
 	local_daif_restore(DAIF_PROCCTX);
+
+	if (stalled)
+		local_irq_enable();
+
+	ret = pipeline_syscall(ti, scno, regs);
+	if (ret) {
+		if (stalled)
+			local_irq_disable();
+		local_daif_mask();
+		if (ret > 0 || !has_syscall_work(flags))
+			trace_hardirqs_on();
+		return;
+	}
+
 	user_exit();
 
 	if (has_syscall_work(flags)) {
@@ -91,6 +108,8 @@ static void el0_svc_common(struct pt_regs *regs, int scno, int sc_nr,
 		local_daif_mask();
 		flags = current_thread_info()->flags;
 		if (!has_syscall_work(flags)) {
+			if (stalled)
+				local_irq_disable();
 			/*
 			 * We're off to userspace, where interrupts are
 			 * always enabled after we restore the flags from

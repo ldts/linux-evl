@@ -22,7 +22,7 @@
 
 /*
  * IRQ_PIPELINE: DAIF masking is only used in contexts where hard
- * interrupt masking applies, so no need to virtualize for the root
+ * interrupt masking applies, so no need to virtualize for the inband
  * stage here (the pipeline core does assume this).
  */
 
