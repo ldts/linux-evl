@@ -16,4 +16,6 @@
 #define ARM64_TRAP_FPE		6	/* FPSIMD exception */
 #define ARM64_TRAP_SVE		7	/* SVE access trap */
 
+void arch_dovetail_context_resume(void);
+
 #endif /* _ASM_ARM64_DOVETAIL_H */
