@@ -221,6 +221,9 @@ up_fail:
 void update_vsyscall(struct timekeeper *tk)
 {
 	u32 use_syscall = !tk->tkr_mono.clock->archdata.vdso_direct;
+	unsigned long flags;
+
+	flags = hard_cond_local_irq_save();
 
 	++vdso_data->tb_seq_count;
 	smp_wmb();
@@ -247,6 +250,8 @@ void update_vsyscall(struct timekeeper *tk)
 
 	smp_wmb();
 	++vdso_data->tb_seq_count;
+
+	hard_cond_local_irq_restore(flags);
 }
 
 void update_vsyscall_tz(void)
