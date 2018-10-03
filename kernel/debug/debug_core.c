@@ -120,8 +120,8 @@ static struct kgdb_bkpt		kgdb_break[KGDB_MAX_BREAKPOINTS] = {
  */
 atomic_t			kgdb_active = ATOMIC_INIT(-1);
 EXPORT_SYMBOL_GPL(kgdb_active);
-static DEFINE_RAW_SPINLOCK(dbg_master_lock);
-static DEFINE_RAW_SPINLOCK(dbg_slave_lock);
+static DEFINE_HARD_SPINLOCK(dbg_master_lock);
+static DEFINE_HARD_SPINLOCK(dbg_slave_lock);
 
 /*
  * We use NR_CPUs not PERCPU, in case kgdb is used to debug early
@@ -549,7 +549,7 @@ acquirelock:
 	 * Interrupts will be restored by the 'trap return' code, except when
 	 * single stepping.
 	 */
-	local_irq_save(flags);
+	flags = hard_local_irq_save();
 
 	cpu = ks->cpu;
 	kgdb_info[cpu].debuggerinfo = regs;
@@ -600,7 +600,7 @@ return_normal:
 			smp_mb__before_atomic();
 			atomic_dec(&slaves_in_kgdb);
 			dbg_touch_watchdogs();
-			local_irq_restore(flags);
+			hard_local_irq_restore(flags);
 			return 0;
 		}
 		cpu_relax();
@@ -618,7 +618,7 @@ return_normal:
 		atomic_set(&kgdb_active, -1);
 		raw_spin_unlock(&dbg_master_lock);
 		dbg_touch_watchdogs();
-		local_irq_restore(flags);
+		hard_local_irq_restore(flags);
 
 		goto acquirelock;
 	}
@@ -651,8 +651,11 @@ return_normal:
 		atomic_set(ks->send_ready, 1);
 
 	/* Signal the other CPUs to enter kgdb_wait() */
-	else if ((!kgdb_single_step) && kgdb_do_roundup)
+	else if ((!kgdb_single_step) && kgdb_do_roundup && running_inband()) {
+		hard_cond_local_irq_enable();
 		kgdb_roundup_cpus();
+		hard_cond_local_irq_disable();
+	}
 #endif
 
 	/*
@@ -737,7 +740,7 @@ kgdb_restore:
 	atomic_set(&kgdb_active, -1);
 	raw_spin_unlock(&dbg_master_lock);
 	dbg_touch_watchdogs();
-	local_irq_restore(flags);
+	hard_local_irq_restore(flags);
 
 	return kgdb_info[cpu].ret_state;
 }
@@ -858,7 +861,7 @@ static void kgdb_console_write(struct console *co, const char *s,
 	if (!kgdb_connected || atomic_read(&kgdb_active) != -1 || dbg_kdb_mode)
 		return;
 
-	local_irq_save(flags);
+	flags = hard_local_irq_save();
 	gdbstub_msg_write(s, count);
 	local_irq_restore(flags);
 }
