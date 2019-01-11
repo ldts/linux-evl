@@ -105,9 +105,25 @@ static inline void prepare_inband_switch(struct task_struct *next)
 	hard_local_irq_disable();
 }
 
+static inline void inband_enter_guest(struct kvm_oob_notifier *nfy)
+{
+	struct irq_pipeline_data *p = raw_cpu_ptr(&irq_pipeline);
+	p->vcpu_notify = nfy;
+	barrier();
+}
+
+static inline void inband_exit_guest(void)
+{
+	struct irq_pipeline_data *p = raw_cpu_ptr(&irq_pipeline);
+	p->vcpu_notify = NULL;
+	barrier();
+}
+
 int inband_switch_tail(void);
 
 void oob_trampoline(void);
+
+void oob_notify_kvm(void);
 
 void arch_inband_task_init(struct task_struct *p);
 
@@ -137,7 +153,7 @@ void dovetail_stop_altsched(void);
 
 __must_check int dovetail_leave_inband(void);
 
-static inline
+static inline			/* hard IRQs off */
 void dovetail_resume_oob(struct dovetail_altsched_context *outgoing)
 {
 	struct task_struct *tsk = current;
@@ -148,6 +164,9 @@ void dovetail_resume_oob(struct dovetail_altsched_context *outgoing)
 	 */
 	outgoing->task = tsk;
 	outgoing->active_mm = tsk->active_mm;
+
+	if (IS_ENABLED(CONFIG_KVM))
+		oob_notify_kvm();
 }
 
 static inline void dovetail_leave_oob(void)
@@ -210,6 +229,10 @@ static inline void inband_cleanup_notify(struct mm_struct *mm) { }
 static inline void oob_trampoline(void) { }
 
 static inline void prepare_inband_switch(struct task_struct *next) { }
+
+#define inband_enter_guest(__nfy)	do { } while (0)
+
+#define inband_exit_guest()		do { } while (0)
 
 static inline int inband_switch_tail(void)
 {

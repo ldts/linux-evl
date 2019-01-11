@@ -14,6 +14,7 @@
 #include <asm/irq_pipeline.h>
 
 struct task_struct;
+struct kvm_oob_notifier;
 
 struct irq_stage {
 	int index;
@@ -52,6 +53,7 @@ struct irq_pipeline_data {
 #ifdef CONFIG_DOVETAIL
 	struct task_struct *task_inflight;
 	struct task_struct *rqlock_owner;
+	struct kvm_oob_notifier *vcpu_notify;
 #endif
 };
 

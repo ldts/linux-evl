@@ -236,10 +236,22 @@ struct kvm_mmio_fragment {
 	unsigned len;
 };
 
+/*
+ * Called when the host is about to leave the inband stage. Typically
+ * used for switching the current vcpu out of guest mode before a
+ * co-kernel reinstates an oob task context.
+ */
+struct kvm_oob_notifier {
+	void (*handler)(struct kvm_oob_notifier *nfy);
+};
+
 struct kvm_vcpu {
 	struct kvm *kvm;
 #ifdef CONFIG_PREEMPT_NOTIFIERS
 	struct preempt_notifier preempt_notifier;
+#endif
+#ifdef CONFIG_DOVETAIL
+	struct kvm_oob_notifier oob_notifier;
 #endif
 	int cpu;
 	int vcpu_id;

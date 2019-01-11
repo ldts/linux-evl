@@ -7,6 +7,7 @@
 #include <linux/sched/signal.h>
 #include <linux/irq_pipeline.h>
 #include <linux/dovetail.h>
+#include <linux/kvm_host.h>
 #include <asm/unistd.h>
 #include <asm/syscall.h>
 
@@ -23,6 +24,21 @@ void inband_task_init(struct task_struct *p)
 	clear_ti_local_flags(ti, _TLF_DOVETAIL|_TLF_OOB|_TLF_OFFSTAGE);
 	arch_inband_task_init(p);
 }
+
+#ifdef CONFIG_KVM
+void oob_notify_kvm(void)
+{
+	struct kvm_oob_notifier *nfy;
+	struct irq_pipeline_data *p;
+
+	check_hard_irqs_disabled();
+	p = raw_cpu_ptr(&irq_pipeline);
+	nfy = p->vcpu_notify;
+	if (unlikely(nfy))
+		nfy->handler(nfy);
+}
+EXPORT_SYMBOL_GPL(oob_notify_kvm);
+#endif
 
 void dovetail_init_altsched(struct dovetail_altsched_context *p)
 {
