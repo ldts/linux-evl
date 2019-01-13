@@ -339,6 +339,21 @@ void __weak inband_clock_was_set(void)
 {
 }
 
+void __weak install_inband_fd(unsigned int fd, struct file *file,
+			      struct files_struct *files)
+{
+}
+
+void __weak uninstall_inband_fd(unsigned int fd, struct file *file,
+				struct files_struct *files)
+{
+}
+
+void __weak replace_inband_fd(unsigned int fd, struct file *file,
+			      struct files_struct *files)
+{
+}
+
 int dovetail_start(void)
 {
 	check_inband_stage();

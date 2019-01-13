@@ -106,6 +106,13 @@ struct poll_wqueues {
 	struct poll_table_entry inline_entries[N_INLINE_POLL_ENTRIES];
 };
 
+/*
+ * Generic poll operation descriptor for f_op->oob_poll.
+ */
+struct oob_poll_wait {
+	struct list_head next;
+};
+
 extern void poll_initwait(struct poll_wqueues *pwq);
 extern void poll_freewait(struct poll_wqueues *pwq);
 extern u64 select_estimate_accuracy(struct timespec64 *tv);

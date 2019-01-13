@@ -54,6 +54,7 @@ struct kiocb;
 struct kobject;
 struct pipe_inode_info;
 struct poll_table_struct;
+struct oob_poll_wait;
 struct kstatfs;
 struct vm_area_struct;
 struct vfsmount;
@@ -940,6 +941,7 @@ struct file {
 #endif
 	/* needed for tty driver, and maybe others */
 	void			*private_data;
+	void			*oob_data;
 
 #ifdef CONFIG_EPOLL
 	/* Used by fs/eventpoll.c to link all the hooks to this file */
@@ -1792,6 +1794,10 @@ struct file_operations {
 	__poll_t (*poll) (struct file *, struct poll_table_struct *);
 	long (*unlocked_ioctl) (struct file *, unsigned int, unsigned long);
 	long (*compat_ioctl) (struct file *, unsigned int, unsigned long);
+	ssize_t (*oob_read) (struct file *, char __user *, size_t);
+	ssize_t (*oob_write) (struct file *, const char __user *, size_t);
+	long (*oob_ioctl) (struct file *, unsigned int, unsigned long);
+	__poll_t (*oob_poll) (struct file *, struct oob_poll_wait *);
 	int (*mmap) (struct file *, struct vm_area_struct *);
 	unsigned long mmap_supported_flags;
 	int (*open) (struct inode *, struct file *);

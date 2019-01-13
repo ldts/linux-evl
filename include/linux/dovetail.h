@@ -14,6 +14,8 @@
 
 struct pt_regs;
 struct task_struct;
+struct file;
+struct files_struct;
 
 enum inband_event_type {
 	INBAND_TASK_SCHEDULE,
@@ -203,7 +205,18 @@ static inline void dovetail_send_mayday(struct task_struct *castaway)
 		set_ti_thread_flag(ti, TIF_MAYDAY);
 }
 
+void install_inband_fd(unsigned int fd, struct file *file,
+		       struct files_struct *files);
+
+void uninstall_inband_fd(unsigned int fd, struct file *file,
+			 struct files_struct *files);
+
+void replace_inband_fd(unsigned int fd, struct file *file,
+		       struct files_struct *files);
+
 #else	/* !CONFIG_DOVETAIL */
+
+struct files_struct;
 
 static inline
 void inband_task_init(struct task_struct *p) { }
@@ -246,6 +259,18 @@ static inline int inband_switch_tail(void)
 	do { (void)(__flags); } while (0)
 
 static inline void inband_clock_was_set(void) { }
+
+static inline
+void install_inband_fd(unsigned int fd, struct file *file,
+		       struct files_struct *files) { }
+
+static inline
+void uninstall_inband_fd(unsigned int fd, struct file *file,
+			 struct files_struct *files) { }
+
+static inline
+void replace_inband_fd(unsigned int fd, struct file *file,
+		       struct files_struct *files) { }
 
 #endif	/* !CONFIG_DOVETAIL */
 
