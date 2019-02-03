@@ -65,7 +65,7 @@ struct msm_pinctrl {
 	struct irq_chip irq_chip;
 	int irq;
 
-	raw_spinlock_t lock;
+	hard_spinlock_t lock;
 
 	DECLARE_BITMAP(dual_edge_irqs, MAX_NR_GPIO);
 	DECLARE_BITMAP(enabled_irqs, MAX_NR_GPIO);
@@ -993,6 +993,7 @@ static int msm_gpio_init(struct msm_pinctrl *pctrl)
 	pctrl->irq_chip.irq_set_wake = msm_gpio_irq_set_wake;
 	pctrl->irq_chip.irq_request_resources = msm_gpio_irq_reqres;
 	pctrl->irq_chip.irq_release_resources = msm_gpio_irq_relres;
+	pctrl->irq_chip.flags = IRQCHIP_PIPELINE_SAFE;
 
 	ret = gpiochip_add_data(&pctrl->chip, pctrl);
 	if (ret) {
