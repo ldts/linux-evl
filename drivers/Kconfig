@@ -30,7 +30,7 @@ source "drivers/block/Kconfig"
 
 source "drivers/nvme/Kconfig"
 
-source "drivers/evenless/Kconfig"
+source "drivers/evl/Kconfig"
 
 # misc before ide - BLK_DEV_SGIIOC4 depends on SGI_IOC4
 
