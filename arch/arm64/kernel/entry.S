@@ -915,15 +915,23 @@ el0_irq_naked:
 1:
 #endif
 	irq_handler
+#ifdef CONFIG_IRQ_PIPELINE
+	cbz	w0, work_done_el0
+#endif
 #ifdef CONFIG_TRACE_IRQFLAGS
 	bl	trace_hardirqs_on_pipelined
-#endif
-#ifdef CONFIG_IRQ_PIPELINE
-	cbz	w0, work_done
 #endif
 	disable_daif
 	b	ret_to_user_noirq
 ENDPROC(el0_irq)
+
+#ifdef CONFIG_IRQ_PIPELINE
+work_done_el0:
+#ifdef CONFIG_TRACE_IRQFLAGS
+	bl	trace_hardirqs_on_pipelined
+#endif
+	b	work_done
+#endif
 
 el1_error:
 	kernel_entry 1
