@@ -22,6 +22,7 @@
 #include <linux/errno.h>
 #include <linux/kernel.h>
 #include <linux/signal.h>
+#include <linux/irq_pipeline.h>
 #include <linux/personality.h>
 #include <linux/freezer.h>
 #include <linux/stddef.h>
@@ -915,26 +916,28 @@ static void do_signal(struct pt_regs *regs)
 asmlinkage void do_notify_resume(struct pt_regs *regs,
 				 unsigned long thread_flags)
 {
-	bool stalled = irqs_disabled();
-
-	if (irqs_pipelined())
-		local_irq_disable();
+	WARN_ON_ONCE(irq_pipeline_debug() &&
+		(irqs_disabled() || running_oob()));
 
 	/*
 	 * The assembly code enters us with IRQs off, but it hasn't
 	 * informed the tracing code of that for efficiency reasons.
 	 * Update the trace code with the current status.
 	 */
-	trace_hardirqs_off();
+	if (!irqs_pipelined())
+		trace_hardirqs_off();
 
 	do {
+		if (irqs_pipelined())
+			local_irq_disable();
+
 		/* Check valid user FS if needed */
 		addr_limit_user_check();
 
 		if (thread_flags & _TIF_NEED_RESCHED) {
 			/* Unmask Debug and SError for the next task */
-			local_daif_restore(DAIF_PROCCTX_NOIRQ);
-			hard_cond_local_irq_enable();
+			local_daif_restore(irqs_pipelined() ?
+					DAIF_PROCCTX : DAIF_PROCCTX_NOIRQ);
 
 			schedule();
 		} else {
@@ -958,20 +961,17 @@ asmlinkage void do_notify_resume(struct pt_regs *regs,
 				fpsimd_restore_current_state();
 		}
 
+		/*
+		 * CAUTION: we may have restored the fpsimd state for
+		 * current with no other opportunity to check for
+		 * _TIF_FOREIGN_FPSTATE until we are back running on
+		 * el0, so we must not take any interrupt until then,
+		 * otherwise we may end up resuming with some OOB
+		 * thread's fpsimd state.
+		 */
 		local_daif_mask();
-		if (irqs_pipelined())
-			local_irq_disable();
 		thread_flags = READ_ONCE(current_thread_info()->flags);
-	} while (thread_flags & _TIF_WORK_MASK);
-
-	if (irqs_pipelined()) {
-		hard_local_irq_enable();
-		if (!stalled)
-			local_irq_enable();
-		if (IS_ENABLED(CONFIG_DEBUG_IRQ_PIPELINE))
-			WARN_ON_ONCE(user_mode(regs) && irqs_disabled());
-		hard_local_irq_disable();
-	}
+	} while (inband_irq_pending() || (thread_flags & _TIF_WORK_MASK));
 }
 
 unsigned long __ro_after_init signal_minsigstksz;
