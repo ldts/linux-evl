@@ -61,6 +61,13 @@ static inline bool inband_unsafe(void)
 		(hard_irqs_disabled() && irq_pipeline_active);
 }
 
+static inline bool inband_irq_pending(void)
+{
+	check_hard_irqs_disabled();
+
+	return stage_irqs_pending(this_inband_staged());
+}
+
 extern struct irq_domain *synthetic_irq_domain;
 
 #else /* !CONFIG_IRQ_PIPELINE */
@@ -97,6 +104,11 @@ static inline bool irq_cpuidle_enter(struct cpuidle_device *dev,
 }
 
 static inline bool inband_unsafe(void)
+{
+	return false;
+}
+
+static inline bool inband_irq_pending(void)
 {
 	return false;
 }
